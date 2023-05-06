@@ -64,7 +64,6 @@ files_mesa_util = files(
   'half_float.h',
   'hash_table.c',
   'hash_table.h',
-  'hex.h',
   'u_idalloc.c',
   'u_idalloc.h',
   'list.h',
@@ -165,8 +164,6 @@ files_mesa_util = files(
   'xxhash.h',
   'mesa_cache_db.c',
   'mesa_cache_db.h',
-  'mesa_cache_db_multipart.c',
-  'mesa_cache_db_multipart.h',
 )
 
 files_drirc = files('00-mesa-defaults.conf')
@@ -330,7 +327,7 @@ if with_tests
                                  'tests', 'drirc_home'),
             'DRIRC_CONFIGDIR=' + join_paths(meson.current_source_dir(),
                                             'tests', 'drirc_configdir')],
-      protocol : 'gtest',
+      protocol : gtest_test_protocol,
     )
   endif
 
@@ -382,7 +379,7 @@ if with_tests
       dependencies : [idep_mesautil, idep_gtest],
     ),
     suite : ['util'],
-    protocol : 'gtest',
+    protocol : gtest_test_protocol,
     timeout : 180,
   )
 
@@ -411,16 +408,6 @@ if with_tests
     process_test_exe,
     suite : ['util'],
     env: ['BUILD_FULL_PATH='+process_test_exe_full_path]
-  )
-
-  test(
-    'process_with_overrides',
-    process_test_exe,
-    suite : ['util'],
-    env: [
-      'BUILD_FULL_PATH='+process_test_exe_full_path,
-      'MESA_PROCESS_NAME=hello',
-    ]
   )
 
   subdir('tests/hash_table')

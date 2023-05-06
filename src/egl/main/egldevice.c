@@ -214,6 +214,22 @@ _eglDeviceSupports(_EGLDevice *dev, _EGLDeviceExtension ext)
    };
 }
 
+/* Ideally we'll have an extension which passes the render node,
+ * instead of the card one + magic.
+ *
+ * Then we can move this in _eglQueryDeviceStringEXT below. Until then
+ * keep it separate.
+ */
+const char *
+_eglGetDRMDeviceRenderNode(_EGLDevice *dev)
+{
+#ifdef HAVE_LIBDRM
+   return dev->device->nodes[DRM_NODE_RENDER];
+#else
+   return NULL;
+#endif
+}
+
 EGLBoolean
 _eglQueryDeviceAttribEXT(_EGLDevice *dev, EGLint attribute,
                          EGLAttrib *value)
@@ -284,10 +300,8 @@ _eglRefreshDeviceList(void)
 
    num_devs = drmGetDevices2(0, devices, ARRAY_SIZE(devices));
    for (int i = 0; i < num_devs; i++) {
-      if (!(devices[i]->available_nodes & (1 << DRM_NODE_RENDER))) {
-         drmFreeDevice(&devices[i]);
+      if (!(devices[i]->available_nodes & (1 << DRM_NODE_RENDER)))
          continue;
-      }
 
       ret = _eglAddDRMDevice(devices[i], NULL);
 
@@ -308,7 +322,7 @@ _eglQueryDevicesEXT(EGLint max_devices,
                     _EGLDevice **devices,
                     EGLint *num_devices)
 {
-   _EGLDevice *dev, *devs, *swrast;
+   _EGLDevice *dev, *devs;
    int i = 0, num_devs;
 
    if ((devices && max_devices <= 0) || !num_devices)
@@ -319,38 +333,29 @@ _eglQueryDevicesEXT(EGLint max_devices,
    num_devs = _eglRefreshDeviceList();
    devs = _eglGlobal.DeviceList;
 
-#ifdef GALLIUM_SOFTPIPE
-   swrast = devs;
-#else
-   swrast = NULL;
-   num_devs--;
-#endif
-
-   /* The first device is swrast. Start with the non-swrast device. */
-   devs = devs->Next;
-
    /* bail early if we only care about the count */
    if (!devices) {
       *num_devices = num_devs;
       goto out;
    }
 
-   *num_devices = MIN2(num_devs, max_devices);
-
-   /* Add non-swrast devices first and add swrast last.
+   /* Push the first device (the software one) to the end of the list.
+    * Sending it to the user only if they've requested the full list.
     *
     * By default, the user is likely to pick the first device so having the
     * software (aka least performant) one is not a good idea.
     */
-   for (i = 0, dev = devs; dev && i < max_devices; i++) {
+   *num_devices = MIN2(num_devs, max_devices);
+
+   for (i = 0, dev = devs->Next; dev && i < max_devices; i++) {
       devices[i] = dev;
       dev = dev->Next;
    }
 
    /* User requested the full device list, add the sofware device. */
-   if (max_devices >= num_devs && swrast) {
-      assert(_eglDeviceSupports(swrast, _EGL_DEVICE_SOFTWARE));
-      devices[num_devs - 1] = swrast;
+   if (max_devices >= num_devs) {
+      assert(_eglDeviceSupports(devs, _EGL_DEVICE_SOFTWARE));
+      devices[num_devs - 1] = devs;
    }
 
 out:

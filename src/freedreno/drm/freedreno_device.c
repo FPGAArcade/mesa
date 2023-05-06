@@ -157,7 +157,7 @@ fd_device_open(void)
 struct fd_device *
 fd_device_ref(struct fd_device *dev)
 {
-   ref(&dev->refcnt);
+   p_atomic_inc(&dev->refcnt);
    return dev;
 }
 
@@ -171,7 +171,7 @@ fd_device_purge(struct fd_device *dev)
 void
 fd_device_del(struct fd_device *dev)
 {
-   if (!unref(&dev->refcnt))
+   if (!p_atomic_dec_zero(&dev->refcnt))
       return;
 
    assert(list_is_empty(&dev->deferred_submits));
@@ -197,7 +197,7 @@ fd_device_del(struct fd_device *dev)
    _mesa_hash_table_destroy(dev->handle_table, NULL);
    _mesa_hash_table_destroy(dev->name_table, NULL);
 
-   if (fd_device_threaded_submit(dev))
+   if (util_queue_is_initialized(&dev->submit_queue))
       util_queue_destroy(&dev->submit_queue);
 
    if (dev->closefd)

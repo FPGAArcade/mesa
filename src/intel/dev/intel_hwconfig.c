@@ -131,10 +131,10 @@ typedef void (*hwconfig_item_cb)(struct intel_device_info *devinfo,
                                  const struct hwconfig *item);
 
 static void
-process_hwconfig_table(struct intel_device_info *devinfo,
-                       const struct hwconfig *hwconfig,
-                       int32_t hwconfig_len,
-                       hwconfig_item_cb item_callback_func)
+intel_process_hwconfig_table(struct intel_device_info *devinfo,
+                             const struct hwconfig *hwconfig,
+                             int32_t hwconfig_len,
+                             hwconfig_item_cb item_callback_func)
 {
    assert(hwconfig);
    assert(hwconfig_len % 4 == 0);
@@ -271,12 +271,22 @@ apply_hwconfig_item(struct intel_device_info *devinfo,
 }
 
 bool
-intel_hwconfig_process_table(struct intel_device_info *devinfo,
-                             void *data, int32_t len)
+intel_get_and_process_hwconfig_table(int fd,
+                                     struct intel_device_info *devinfo)
 {
-   process_hwconfig_table(devinfo, data, len, apply_hwconfig_item);
+   struct hwconfig *hwconfig;
+   int32_t hwconfig_len = 0;
+   hwconfig = intel_i915_query_alloc(fd, DRM_I915_QUERY_HWCONFIG_BLOB,
+                                     &hwconfig_len);
+   if (hwconfig) {
+      intel_process_hwconfig_table(devinfo, hwconfig, hwconfig_len,
+                                   apply_hwconfig_item);
+      free(hwconfig);
+      if (devinfo->apply_hwconfig)
+         return true;
+   }
 
-   return devinfo->apply_hwconfig;
+   return false;
 }
 
 static void
@@ -294,7 +304,8 @@ static void
 intel_print_hwconfig_table(const struct hwconfig *hwconfig,
                            int32_t hwconfig_len)
 {
-   process_hwconfig_table(NULL, hwconfig, hwconfig_len, print_hwconfig_item);
+   intel_process_hwconfig_table(NULL, hwconfig, hwconfig_len,
+                                print_hwconfig_item);
 }
 
 void

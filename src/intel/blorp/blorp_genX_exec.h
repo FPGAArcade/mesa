@@ -405,8 +405,9 @@ static void
 blorp_emit_vertex_buffers(struct blorp_batch *batch,
                           const struct blorp_params *params)
 {
-   struct GENX(VERTEX_BUFFER_STATE) vb[2] = {};
-   const uint32_t num_vbs = ARRAY_SIZE(vb);
+   struct GENX(VERTEX_BUFFER_STATE) vb[3];
+   uint32_t num_vbs = 2;
+   memset(vb, 0, sizeof(vb));
 
    struct blorp_address addrs[2] = {};
    uint32_t sizes[2];
@@ -898,8 +899,7 @@ blorp_emit_ps_config(struct blorp_batch *batch,
 
       if (prog_data) {
          intel_set_ps_dispatch_state(&ps, devinfo, prog_data,
-                                     params->num_samples,
-                                     0 /* msaa_flags */);
+                                     params->num_samples);
 
          ps.DispatchGRFStartRegisterForConstantSetupData0 =
             brw_wm_prog_data_dispatch_grf_start_reg(prog_data, ps, 0);
@@ -981,8 +981,7 @@ blorp_emit_ps_config(struct blorp_batch *batch,
 
       if (prog_data) {
          intel_set_ps_dispatch_state(&ps, devinfo, prog_data,
-                                     params->num_samples,
-                                     0 /* msaa_flags */);
+                                     params->num_samples);
 
          ps.DispatchGRFStartRegisterForConstantSetupData0 =
             brw_wm_prog_data_dispatch_grf_start_reg(prog_data, ps, 0);
@@ -1762,7 +1761,7 @@ blorp_emit_depth_stencil_config(struct blorp_batch *batch,
 
    isl_emit_depth_stencil_hiz_s(isl_dev, dw, &info);
 
-#if GFX_VER >= 11
+#if GFX_VER >= 12
    /* Wa_1408224581
     *
     * Workaround: Gfx12LP Astep only An additional pipe control with
@@ -1770,7 +1769,7 @@ blorp_emit_depth_stencil_config(struct blorp_batch *batch,
     * have an additional pipe control after the stencil state whenever
     * the surface state bits of this state is changing).
     *
-    * This also seems sufficient to handle Wa_14014097488.
+    * This also seems sufficient to handle Wa_14014148106.
     */
    blorp_emit(batch, GENX(PIPE_CONTROL), pc) {
       pc.PostSyncOperation = WriteImmediateData;
@@ -2187,7 +2186,6 @@ blorp_exec_compute(struct blorp_batch *batch, const struct blorp_params *params)
          .NumberofThreadsinGPGPUThreadGroup = dispatch.threads,
          .SharedLocalMemorySize =
             encode_slm_size(GFX_VER, prog_data->total_shared),
-         .PreferredSLMAllocationSize = preferred_slm_allocation_size(devinfo),
          .NumberOfBarriers = cs_prog_data->uses_barrier,
       };
    }

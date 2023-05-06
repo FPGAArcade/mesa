@@ -251,8 +251,6 @@ files_libgallium = files(
   'util/u_rect.h',
   'util/u_resource.c',
   'util/u_resource.h',
-  'util/u_sample_positions.c',
-  'util/u_sample_positions.h',
   'util/u_sampler.c',
   'util/u_sampler.h',
   'util/u_screen.c',
@@ -296,6 +294,8 @@ files_libgallium = files(
   'nir/nir_to_tgsi.h',
   'nir/nir_draw_helpers.c',
   'nir/nir_draw_helpers.h',
+  'nir/nir_helpers.c',
+  'nir/nir_helpers.h',
 )
 
 if dep_libdrm.found()
@@ -536,7 +536,7 @@ if with_tests
       dependencies : [idep_gtest],
     ),
     suite: 'gallium',
-    protocol : 'gtest',
+    protocol : gtest_test_protocol,
   )
 endif
 

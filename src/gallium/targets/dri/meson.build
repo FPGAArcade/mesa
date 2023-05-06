@@ -91,7 +91,8 @@ foreach d : [[with_gallium_kmsro, [
                'st7586_dri.so',
                'st7735r_dri.so',
                'stm_dri.so',
-	       'sun4i-drm_dri.so',
+	           'sun4i-drm_dri.so',
+	           'xlnx_dri.so',
              ]],
              [with_gallium_radeonsi, 'radeonsi_dri.so'],
              [with_gallium_nouveau, 'nouveau_dri.so'],
@@ -110,7 +111,7 @@ foreach d : [[with_gallium_kmsro, [
              [with_gallium_r600, 'r600_dri.so'],
              [with_gallium_svga, 'vmwgfx_dri.so'],
              [with_gallium_virgl or
-               (with_gallium_freedreno and freedreno_kmds.contains('virtio')),
+               (with_gallium_freedreno and with_freedreno_virtio),
                'virtio_gpu_dri.so'],
              [with_gallium_lima, 'lima_dri.so'],
              [with_gallium_zink, 'zink_dri.so'],
@@ -121,24 +122,26 @@ foreach d : [[with_gallium_kmsro, [
   endif
 endforeach
 
-# This only works on Unix-like oses, which is probably fine for dri
-prog_ln = find_program('ln', required : false)
-if prog_ln.found()
-  devenv.set('LIBGL_DRIVERS_PATH', meson.current_build_dir())
+if meson.version().version_compare('>= 0.58')
+  # This only works on Unix-like oses, which is probably fine for dri
+  prog_ln = find_program('ln', required : false)
+  if prog_ln.found()
+    devenv.set('LIBGL_DRIVERS_PATH', meson.current_build_dir())
 
-  foreach d : gallium_dri_drivers
-    custom_target(
-      'devenv_@0@'.format(d),
-      input : libgallium_dri,
-      output : d,
-      command : [prog_ln, '-f', '@INPUT@', '@OUTPUT@'],
-      build_by_default : true,
-    )
-  endforeach
+    foreach d : gallium_dri_drivers
+      custom_target(
+        'devenv_@0@'.format(d),
+        input : libgallium_dri,
+        output : d,
+        command : [prog_ln, '-f', '@INPUT@', '@OUTPUT@'],
+        build_by_default : true,
+      )
+    endforeach
+  endif
 endif
 
 meson.add_install_script(
-  install_megadrivers_py.full_path(),
+  install_megadrivers_py.path(),
   libgallium_dri.full_path(),
   dri_drivers_path,
   gallium_dri_drivers,

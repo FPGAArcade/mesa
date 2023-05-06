@@ -73,7 +73,6 @@ stw_tls_init(void)
     * XXX: Except for the current thread since it there is an explicit
     * stw_tls_init_thread() call for it later on.
     */
-#ifndef _GAMING_XBOX
    if (1) {
       DWORD dwCurrentProcessId = GetCurrentProcessId();
       DWORD dwCurrentThreadId = GetCurrentThreadId();
@@ -104,7 +103,6 @@ stw_tls_init(void)
          CloseHandle(hSnapshot);
       }
    }
-#endif /* _GAMING_XBOX */
 
    return TRUE;
 }
@@ -129,14 +127,10 @@ stw_tls_data_create(DWORD dwThreadId)
 
    data->dwThreadId = dwThreadId;
 
-#ifndef _GAMING_XBOX
    data->hCallWndProcHook = SetWindowsHookEx(WH_CALLWNDPROC,
                                              stw_call_window_proc,
                                              NULL,
                                              dwThreadId);
-#else
-   data->hCallWndProcHook = NULL;
-#endif
    if (data->hCallWndProcHook == NULL) {
       goto no_hook;
    }
@@ -167,12 +161,10 @@ stw_tls_data_destroy(struct stw_tls_data *data)
       debug_printf("%s(0x%04lx)\n", __func__, data->dwThreadId);
    }
 
-#ifndef _GAMING_XBOX
    if (data->hCallWndProcHook) {
       UnhookWindowsHookEx(data->hCallWndProcHook);
       data->hCallWndProcHook = NULL;
    }
-#endif
 
    free(data);
 }

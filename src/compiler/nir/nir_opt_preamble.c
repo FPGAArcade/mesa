@@ -180,7 +180,6 @@ can_move_intrinsic(nir_intrinsic_instr *instr, opt_preamble_ctx *ctx)
    case nir_intrinsic_load_deref:
    case nir_intrinsic_load_global_constant:
    case nir_intrinsic_load_uniform:
-   case nir_intrinsic_load_preamble:
    case nir_intrinsic_load_constant:
    case nir_intrinsic_load_sample_pos_from_id:
    case nir_intrinsic_load_kernel_input:
@@ -422,6 +421,7 @@ nir_opt_preamble(nir_shader *shader, const nir_opt_preamble_options *options,
    }
 
    if (num_candidates == 0) {
+      *size = 0;
       free(ctx.states);
       return false;
    }
@@ -485,6 +485,7 @@ nir_opt_preamble(nir_shader *shader, const nir_opt_preamble_options *options,
    num_candidates = candidate_idx;
 
    if (num_candidates == 0) {
+      *size = 0;
       free(ctx.states);
       free(candidates);
       return false;
@@ -497,11 +498,11 @@ nir_opt_preamble(nir_shader *shader, const nir_opt_preamble_options *options,
     * divided by size.
     */
 
-   if (((*size) + total_size) > options->preamble_storage_size) {
-     qsort(candidates, num_candidates, sizeof(*candidates), candidate_sort);
+   if (total_size > options->preamble_storage_size) {
+      qsort(candidates, num_candidates, sizeof(*candidates), candidate_sort);
    }
 
-   unsigned offset = *size;
+   unsigned offset = 0;
    for (unsigned i = 0; i < num_candidates; i++) {
       def_state *state = candidates[i];
       offset = ALIGN_POT(offset, state->align);

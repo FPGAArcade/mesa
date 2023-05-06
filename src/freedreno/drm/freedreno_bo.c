@@ -41,34 +41,15 @@ set_name(struct fd_bo *bo, uint32_t name)
    _mesa_hash_table_insert(bo->dev->name_table, &bo->name, bo);
 }
 
-static struct fd_bo zombie;
-
 /* lookup a buffer, call w/ table_lock held: */
 static struct fd_bo *
 lookup_bo(struct hash_table *tbl, uint32_t key)
 {
    struct fd_bo *bo = NULL;
-   struct hash_entry *entry;
-
-   simple_mtx_assert_locked(&table_lock);
-
-   entry = _mesa_hash_table_search(tbl, &key);
+   struct hash_entry *entry = _mesa_hash_table_search(tbl, &key);
    if (entry) {
-      bo = entry->data;
-
-      /* We could be racing with final unref in another thread, and won
-       * the table_lock preventing the other thread from being able to
-       * remove an object it is about to free.  Fortunately since table
-       * lookup and removal are protected by the same lock (and table
-       * removal happens before obj free) we can easily detect this by
-       * checking for refcnt==0.
-       */
-      if (bo->refcnt == 0) {
-         return &zombie;
-      }
-
       /* found, incr refcnt and return: */
-      fd_bo_ref(bo);
+      bo = fd_bo_ref(entry->data);
 
       if (!list_is_empty(&bo->node)) {
          mesa_logw("bo was in cache, size=%u, alloc_flags=0x%x\n",
@@ -212,12 +193,6 @@ fd_bo_from_handle(struct fd_device *dev, uint32_t handle, uint32_t size)
 out_unlock:
    simple_mtx_unlock(&table_lock);
 
-   /* We've raced with the handle being closed, so the handle is no longer
-    * valid.  Friends don't let friends share handles.
-    */
-   if (bo == &zombie)
-      return NULL;
-
    return bo;
 }
 
@@ -228,7 +203,6 @@ fd_bo_from_dmabuf(struct fd_device *dev, int fd)
    uint32_t handle;
    struct fd_bo *bo;
 
-restart:
    simple_mtx_lock(&table_lock);
    ret = drmPrimeFDToHandle(dev->fd, fd, &handle);
    if (ret) {
@@ -251,9 +225,6 @@ restart:
 out_unlock:
    simple_mtx_unlock(&table_lock);
 
-   if (bo == &zombie)
-      goto restart;
-
    return bo;
 }
 
@@ -272,7 +243,6 @@ fd_bo_from_name(struct fd_device *dev, uint32_t name)
    if (bo)
       goto out_unlock;
 
-restart:
    if (drmIoctl(dev->fd, DRM_IOCTL_GEM_OPEN, &req)) {
       ERROR_MSG("gem-open failed: %s", strerror(errno));
       goto out_unlock;
@@ -291,9 +261,6 @@ restart:
 out_unlock:
    simple_mtx_unlock(&table_lock);
 
-   if (bo == &zombie)
-      goto restart;
-
    return bo;
 }
 
@@ -306,96 +273,67 @@ fd_bo_mark_for_dump(struct fd_bo *bo)
 struct fd_bo *
 fd_bo_ref(struct fd_bo *bo)
 {
-   ref(&bo->refcnt);
+   p_atomic_inc(&bo->refcnt);
    return bo;
 }
 
-static void
-bo_finalize(struct fd_bo *bo)
-{
-   if (bo->funcs->finalize)
-      bo->funcs->finalize(bo);
-}
+static uint32_t bo_del(struct fd_bo *bo);
+static void close_handles(struct fd_device *dev, uint32_t *handles, unsigned cnt);
 
-static void
-dev_flush(struct fd_device *dev)
-{
-   if (dev->funcs->flush)
-      dev->funcs->flush(dev);
-}
-
-static void
-bo_del(struct fd_bo *bo)
-{
-   bo->funcs->destroy(bo);
-}
-
-static bool
-try_recycle(struct fd_bo *bo)
+static uint32_t
+bo_del_or_recycle(struct fd_bo *bo)
 {
    struct fd_device *dev = bo->dev;
 
    /* No point in BO cache for suballocated buffers: */
-   if (suballoc_bo(bo))
-      return false;
+   if (!suballoc_bo(bo)) {
+      if ((bo->bo_reuse == BO_CACHE) &&
+          (fd_bo_cache_free(&dev->bo_cache, bo) == 0))
+         return 0;
 
-   if (bo->bo_reuse == BO_CACHE)
-      return fd_bo_cache_free(&dev->bo_cache, bo) == 0;
+      if ((bo->bo_reuse == RING_CACHE) &&
+          (fd_bo_cache_free(&dev->ring_cache, bo) == 0))
+         return 0;
+   }
 
-   if (bo->bo_reuse == RING_CACHE)
-      return fd_bo_cache_free(&dev->ring_cache, bo) == 0;
-
-   return false;
+   return bo_del(bo);
 }
 
 void
 fd_bo_del(struct fd_bo *bo)
 {
-   if (!unref(&bo->refcnt))
-      return;
-
-   if (try_recycle(bo))
+   if (!p_atomic_dec_zero(&bo->refcnt))
       return;
 
    struct fd_device *dev = bo->dev;
 
-   bo_finalize(bo);
-   dev_flush(dev);
-   bo_del(bo);
+   uint32_t handle = bo_del_or_recycle(bo);
+   if (handle)
+      close_handles(dev, &handle, 1);
 }
 
 void
-fd_bo_del_array(struct fd_bo **bos, int count)
+fd_bo_del_array(struct fd_bo **bos, unsigned count)
 {
    if (!count)
       return;
 
    struct fd_device *dev = bos[0]->dev;
+   uint32_t handles[64];
+   unsigned cnt = 0;
 
-   /*
-    * First pass, remove objects from the table that either (a) still have
-    * a live reference, or (b) no longer have a reference but are released
-    * to the BO cache:
-    */
-
-   for (int i = 0; i < count; i++) {
-      if (!unref(&bos[i]->refcnt) || try_recycle(bos[i])) {
-         bos[i--] = bos[--count];
-      } else {
-         /* We are going to delete this one, so finalize it first: */
-         bo_finalize(bos[i]);
+   for (unsigned i = 0; i < count; i++) {
+      if (!p_atomic_dec_zero(&bos[i]->refcnt))
+         continue;
+      if (cnt == ARRAY_SIZE(handles)) {
+         close_handles(dev, handles, cnt);
+         cnt = 0;
       }
+      handles[cnt] = bo_del_or_recycle(bos[i]);
+      if (handles[cnt])
+         cnt++;
    }
-
-   dev_flush(dev);
-
-   /*
-    * Second pass, delete all of the objects remaining after first pass.
-    */
-
-   for (int i = 0; i < count; i++) {
-      bo_del(bos[i]);
-   }
+   close_handles(dev, handles, cnt);
 }
 
 /**
@@ -410,17 +348,21 @@ fd_bo_del_list_nocache(struct list_head *list)
       return;
 
    struct fd_device *dev = first_bo(list)->dev;
-
-   foreach_bo (bo, list) {
-      bo_finalize(bo);
-   }
-
-   dev_flush(dev);
+   uint32_t handles[64];
+   unsigned cnt = 0;
 
    foreach_bo_safe (bo, list) {
       assert(bo->refcnt == 0);
-      bo_del(bo);
+      if (cnt == ARRAY_SIZE(handles)) {
+         close_handles(dev, handles, cnt);
+         cnt = 0;
+      }
+      handles[cnt] = bo_del(bo);
+      if (handles[cnt])
+         cnt++;
    }
+
+   close_handles(dev, handles, cnt);
 }
 
 void
@@ -456,17 +398,39 @@ fd_bo_fini_common(struct fd_bo *bo)
 
    if (handle) {
       simple_mtx_lock(&table_lock);
-      struct drm_gem_close req = {
-         .handle = handle,
-      };
-      drmIoctl(dev->fd, DRM_IOCTL_GEM_CLOSE, &req);
       _mesa_hash_table_remove_key(dev->handle_table, &handle);
       if (bo->name)
          _mesa_hash_table_remove_key(dev->name_table, &bo->name);
       simple_mtx_unlock(&table_lock);
    }
+}
 
-   free(bo);
+/**
+ * The returned handle must be closed via a call to close_handles()
+ */
+static uint32_t
+bo_del(struct fd_bo *bo)
+{
+   uint32_t handle = bo->handle;
+   bo->funcs->destroy(bo);
+   return handle;
+}
+
+static void
+close_handles(struct fd_device *dev, uint32_t *handles, unsigned cnt)
+{
+   if (!cnt)
+      return;
+
+   if (dev->funcs->flush)
+      dev->funcs->flush(dev);
+
+   for (unsigned i = 0; i < cnt; i++) {
+      struct drm_gem_close req = {
+         .handle = handles[i],
+      };
+      drmIoctl(dev->fd, DRM_IOCTL_GEM_CLOSE, &req);
+   }
 }
 
 static void
@@ -637,44 +601,14 @@ fd_bo_cpu_prep(struct fd_bo *bo, struct fd_pipe *pipe, uint32_t op)
     */
    bo_flush(bo);
 
-   /* FD_BO_PREP_FLUSH is purely a frontend flag, and is not seen/handled
-    * by backend or kernel:
-    */
    op &= ~FD_BO_PREP_FLUSH;
 
    if (!op)
       return 0;
 
-   /* Wait on fences.. first grab a reference under the fence lock, and then
-    * wait and drop ref.
+   /* FD_BO_PREP_FLUSH is purely a frontend flag, and is not seen/handled
+    * by backend or kernel:
     */
-   simple_mtx_lock(&fence_lock);
-   unsigned nr = bo->nr_fences;
-   struct fd_fence *fences[nr];
-   for (unsigned i = 0; i < nr; i++)
-      fences[i] = fd_fence_ref_locked(bo->fences[i]);
-   simple_mtx_unlock(&fence_lock);
-
-   for (unsigned i = 0; i < nr; i++) {
-      fd_fence_wait(fences[i]);
-      fd_fence_del(fences[i]);
-   }
-
-   /* expire completed fences */
-   fd_bo_state(bo);
-
-   /* None shared buffers will not have any external usage (ie. fences
-    * that we are not aware of) so nothing more to do.
-    */
-   if (!(bo->alloc_flags & FD_BO_SHARED))
-      return 0;
-
-   /* If buffer is shared, but we are using explicit sync, no need to
-    * fallback to implicit sync:
-    */
-   if (pipe && pipe->no_implicit_sync)
-      return 0;
-
    return bo->funcs->cpu_prep(bo, pipe, op);
 }
 
@@ -757,12 +691,6 @@ fd_bo_state(struct fd_bo *bo)
     */
    if (bo->alloc_flags & (FD_BO_SHARED | _FD_BO_NOSYNC))
       return FD_BO_STATE_UNKNOWN;
-
-   /* Speculatively check, if we already know we're idle, no need to acquire
-    * lock and do the cleanup_fences() dance:
-    */
-   if (!bo->nr_fences)
-      return FD_BO_STATE_IDLE;
 
    simple_mtx_lock(&fence_lock);
    cleanup_fences(bo);

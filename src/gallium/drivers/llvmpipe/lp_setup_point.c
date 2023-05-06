@@ -468,11 +468,13 @@ try_setup_point(struct lp_setup_context *setup,
    if (!setup->legacy_points || setup->multisample) {
       struct lp_rast_triangle *point;
       struct lp_rast_plane *plane;
+      unsigned bytes;
       unsigned nr_planes = 4;
 
       point = lp_setup_alloc_triangle(scene,
                                       key->num_inputs,
-                                      nr_planes);
+                                      nr_planes,
+                                      &bytes);
      if (!point)
         return FALSE;
 

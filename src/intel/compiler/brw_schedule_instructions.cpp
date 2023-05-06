@@ -326,6 +326,7 @@ schedule_node::set_latency_gfx7(bool is_haswell)
 
    case FS_OPCODE_VARYING_PULL_CONSTANT_LOAD_GFX4:
    case FS_OPCODE_UNIFORM_PULL_CONSTANT_LOAD:
+   case FS_OPCODE_UNIFORM_PULL_CONSTANT_LOAD_GFX7:
    case VS_OPCODE_PULL_CONSTANT_LOAD:
       /* testing using varying-index pull constants:
        *
@@ -397,11 +398,6 @@ schedule_node::set_latency_gfx7(bool is_haswell)
          }
          break;
       }
-
-      case GFX6_SFID_DATAPORT_CONSTANT_CACHE:
-         /* See FS_OPCODE_UNIFORM_PULL_CONSTANT_LOAD */
-         latency = 200;
-         break;
 
       case GFX6_SFID_DATAPORT_RENDER_CACHE:
          switch (brw_fb_desc_msg_type(isa->devinfo, inst->desc)) {
@@ -530,10 +526,6 @@ schedule_node::set_latency_gfx7(bool is_haswell)
          default:
             unreachable("Unknown data cache message");
          }
-         break;
-
-      case GFX7_SFID_PIXEL_INTERPOLATOR:
-         latency = 50; /* TODO */
          break;
 
       case GFX12_SFID_UGM:

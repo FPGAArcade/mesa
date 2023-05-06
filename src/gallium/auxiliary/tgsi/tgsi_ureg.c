@@ -481,7 +481,7 @@ out:
 
 struct ureg_dst
 ureg_DECL_output_masked(struct ureg_program *ureg,
-                        enum tgsi_semantic name,
+                        unsigned name,
                         unsigned index,
                         unsigned usage_mask,
                         unsigned array_id,

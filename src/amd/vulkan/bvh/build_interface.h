@@ -95,12 +95,18 @@ struct copy_args {
    uint32_t mode;
 };
 
-struct encode_args {
+struct convert_internal_args {
    VOID_REF intermediate_bvh;
    VOID_REF output_bvh;
    REF(radv_ir_header) header;
    uint32_t output_bvh_offset;
    uint32_t leaf_node_count;
+   uint32_t geometry_type;
+};
+
+struct convert_leaf_args {
+   VOID_REF intermediate_bvh;
+   VOID_REF output_bvh;
    uint32_t geometry_type;
 };
 
@@ -118,13 +124,6 @@ struct ploc_args {
    VOID_REF ids_0;
    VOID_REF ids_1;
    uint32_t internal_node_offset;
-};
-
-struct header_args {
-   REF(radv_ir_header) src;
-   REF(radv_accel_struct_header) dst;
-   uint32_t bvh_offset;
-   uint32_t instance_count;
 };
 
 #endif

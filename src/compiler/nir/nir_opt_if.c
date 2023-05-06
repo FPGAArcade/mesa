@@ -492,11 +492,12 @@ opt_split_alu_of_phi(nir_builder *b, nir_loop *loop)
 
       if (!is_prev_result_undef && !is_prev_result_const) {
          /* check if the only user is a trivial bcsel */
-         if (!list_is_singular(&alu->dest.dest.ssa.uses))
+         if (!list_is_empty(&alu->dest.dest.ssa.if_uses) ||
+             !list_is_singular(&alu->dest.dest.ssa.uses))
             continue;
 
          nir_src *use = list_first_entry(&alu->dest.dest.ssa.uses, nir_src, use_link);
-         if (use->is_if || !is_trivial_bcsel(use->parent_instr, true))
+         if (!is_trivial_bcsel(use->parent_instr, true))
             continue;
       }
 
@@ -1285,10 +1286,11 @@ clone_alu_and_replace_src_defs(nir_builder *b, const nir_alu_instr *alu,
  */
 static bool
 propagate_condition_eval(nir_builder *b, nir_if *nif, nir_src *use_src,
-                         nir_src *alu_use, nir_alu_instr *alu)
+                         nir_src *alu_use, nir_alu_instr *alu,
+                         bool is_if_condition)
 {
    bool bool_value;
-   b->cursor = nir_before_src(alu_use);
+   b->cursor = nir_before_src(alu_use, is_if_condition);
    if (!evaluate_if_condition(nif, b->cursor, &bool_value))
       return false;
 
@@ -1306,7 +1308,7 @@ propagate_condition_eval(nir_builder *b, nir_if *nif, nir_src *use_src,
    /* Rewrite use to use new alu instruction */
    nir_src new_src = nir_src_for_ssa(nalu);
 
-   if (alu_use->is_if)
+   if (is_if_condition)
       nir_if_rewrite_condition(alu_use->parent_if, new_src);
    else
       nir_instr_rewrite_src(alu_use->parent_instr, alu_use, new_src);
@@ -1335,17 +1337,18 @@ can_propagate_through_alu(nir_src *src)
 }
 
 static bool
-evaluate_condition_use(nir_builder *b, nir_if *nif, nir_src *use_src)
+evaluate_condition_use(nir_builder *b, nir_if *nif, nir_src *use_src,
+                       bool is_if_condition)
 {
    bool progress = false;
 
-   b->cursor = nir_before_src(use_src);
+   b->cursor = nir_before_src(use_src, is_if_condition);
 
    bool bool_value;
    if (evaluate_if_condition(nif, b->cursor, &bool_value)) {
       /* Rewrite use to use const */
       nir_src imm_src = nir_src_for_ssa(nir_imm_bool(b, bool_value));
-      if (use_src->is_if)
+      if (is_if_condition)
          nir_if_rewrite_condition(use_src->parent_if, imm_src);
       else
          nir_instr_rewrite_src(use_src->parent_instr, use_src, imm_src);
@@ -1353,11 +1356,18 @@ evaluate_condition_use(nir_builder *b, nir_if *nif, nir_src *use_src)
       progress = true;
    }
 
-   if (!use_src->is_if && can_propagate_through_alu(use_src)) {
+   if (!is_if_condition && can_propagate_through_alu(use_src)) {
       nir_alu_instr *alu = nir_instr_as_alu(use_src->parent_instr);
 
-      nir_foreach_use_including_if_safe(alu_use, &alu->dest.dest.ssa)
-         progress |= propagate_condition_eval(b, nif, use_src, alu_use, alu);
+      nir_foreach_use_safe(alu_use, &alu->dest.dest.ssa) {
+         progress |= propagate_condition_eval(b, nif, use_src, alu_use, alu,
+                                              false);
+      }
+
+      nir_foreach_if_use_safe(alu_use, &alu->dest.dest.ssa) {
+         progress |= propagate_condition_eval(b, nif, use_src, alu_use, alu,
+                                              true);
+      }
    }
 
    return progress;
@@ -1370,9 +1380,13 @@ opt_if_evaluate_condition_use(nir_builder *b, nir_if *nif)
 
    /* Evaluate any uses of the if condition inside the if branches */
    assert(nif->condition.is_ssa);
-   nir_foreach_use_including_if_safe(use_src, nif->condition.ssa) {
-      if (!(use_src->is_if && use_src->parent_if == nif))
-         progress |= evaluate_condition_use(b, nif, use_src);
+   nir_foreach_use_safe(use_src, nif->condition.ssa) {
+      progress |= evaluate_condition_use(b, nif, use_src, false);
+   }
+
+   nir_foreach_if_use_safe(use_src, nif->condition.ssa) {
+      if (use_src->parent_if != nif)
+         progress |= evaluate_condition_use(b, nif, use_src, true);
    }
 
    return progress;
@@ -1607,7 +1621,6 @@ opt_if_cf_list(nir_builder *b, struct exec_list *cf_list,
 
       case nir_cf_node_loop: {
          nir_loop *loop = nir_cf_node_as_loop(cf_node);
-         assert(!nir_loop_has_continue_construct(loop));
          progress |= opt_if_cf_list(b, &loop->body,
                                     options);
          progress |= opt_simplify_bcsel_of_phi(b, loop);
@@ -1653,7 +1666,6 @@ opt_if_regs_cf_list(struct exec_list *cf_list)
 
       case nir_cf_node_loop: {
          nir_loop *loop = nir_cf_node_as_loop(cf_node);
-         assert(!nir_loop_has_continue_construct(loop));
          progress |= opt_if_regs_cf_list(&loop->body);
          progress |= opt_peel_loop_initial_if(loop);
          break;
@@ -1692,7 +1704,6 @@ opt_if_safe_cf_list(nir_builder *b, struct exec_list *cf_list)
 
       case nir_cf_node_loop: {
          nir_loop *loop = nir_cf_node_as_loop(cf_node);
-         assert(!nir_loop_has_continue_construct(loop));
          progress |= opt_if_safe_cf_list(b, &loop->body);
          progress |= opt_split_alu_of_phi(b, loop);
          break;

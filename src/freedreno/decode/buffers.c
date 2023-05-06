@@ -45,7 +45,7 @@ struct buffer {
    struct {
       unsigned offset;
       unsigned dumped_mask;
-   } offsets[256];
+   } offsets[64];
    unsigned noffsets;
 };
 

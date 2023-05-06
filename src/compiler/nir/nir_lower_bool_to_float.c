@@ -43,8 +43,7 @@ rewrite_1bit_ssa_def_to_32bit(nir_ssa_def *def, void *_progress)
 }
 
 static bool
-lower_alu_instr(nir_builder *b, nir_alu_instr *alu, bool has_fcsel_ne,
-                bool has_fcsel_gt)
+lower_alu_instr(nir_builder *b, nir_alu_instr *alu)
 {
    const nir_op_info *op_info = &nir_op_infos[alu->op];
 
@@ -67,6 +66,10 @@ lower_alu_instr(nir_builder *b, nir_alu_instr *alu, bool has_fcsel_ne,
 
    case nir_op_b2f32: alu->op = nir_op_mov; break;
    case nir_op_b2i32: alu->op = nir_op_mov; break;
+   case nir_op_f2b1:
+      rep = nir_sne(b, nir_ssa_for_alu_src(b, alu, 0),
+                       nir_imm_float(b, 0));
+      break;
    case nir_op_b2b1: alu->op = nir_op_mov; break;
 
    case nir_op_flt: alu->op = nir_op_slt; break;
@@ -93,22 +96,7 @@ lower_alu_instr(nir_builder *b, nir_alu_instr *alu, bool has_fcsel_ne,
    case nir_op_bany_inequal3: alu->op = nir_op_fany_nequal3; break;
    case nir_op_bany_inequal4: alu->op = nir_op_fany_nequal4; break;
 
-   case nir_op_bcsel:
-      if (has_fcsel_gt)
-         alu->op = nir_op_fcsel_gt;
-      else if (has_fcsel_ne)
-         alu->op = nir_op_fcsel;
-      else {
-         /* Only a few pre-VS 4.0 platforms (e.g., r300 vertex shaders) should
-          * hit this path.
-          */
-         rep = nir_flrp(b,
-                        nir_ssa_for_alu_src(b, alu, 2),
-                        nir_ssa_for_alu_src(b, alu, 1),
-                        nir_ssa_for_alu_src(b, alu, 0));
-      }
-
-      break;
+   case nir_op_bcsel: alu->op = nir_op_fcsel; break;
 
    case nir_op_iand: alu->op = nir_op_fmul; break;
    case nir_op_ixor: alu->op = nir_op_sne; break;
@@ -150,22 +138,14 @@ lower_tex_instr(nir_tex_instr *tex)
    return progress;
 }
 
-struct lower_bool_to_float_data {
-   bool has_fcsel_ne;
-   bool has_fcsel_gt;
-};
-
 static bool
 nir_lower_bool_to_float_instr(nir_builder *b,
                               nir_instr *instr,
-                              void *cb_data)
+                              UNUSED void *cb_data)
 {
-   struct lower_bool_to_float_data *data = cb_data;
-
    switch (instr->type) {
    case nir_instr_type_alu:
-      return lower_alu_instr(b, nir_instr_as_alu(instr),
-                             data->has_fcsel_ne, data->has_fcsel_gt);
+      return lower_alu_instr(b, nir_instr_as_alu(instr));
 
    case nir_instr_type_load_const: {
       nir_load_const_instr *load = nir_instr_as_load_const(instr);
@@ -197,15 +177,10 @@ nir_lower_bool_to_float_instr(nir_builder *b,
 }
 
 bool
-nir_lower_bool_to_float(nir_shader *shader, bool has_fcsel_ne)
+nir_lower_bool_to_float(nir_shader *shader)
 {
-   struct lower_bool_to_float_data data = {
-      .has_fcsel_ne = has_fcsel_ne,
-      .has_fcsel_gt = shader->options->has_fused_comp_and_csel
-   };
-
    return nir_shader_instructions_pass(shader, nir_lower_bool_to_float_instr,
                                        nir_metadata_block_index |
                                        nir_metadata_dominance,
-                                       &data);
+                                       NULL);
 }

@@ -20,6 +20,11 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
+ *
+ * Authors:
+ *    Alyssa Rosenzweig <alyssa@collabora.com>
+ *    Jason Ekstrand (jason@jlekstrand.net)
+ *
  */
 
 #include "nir.h"
@@ -86,13 +91,13 @@ pan_has_dest_mod(nir_dest **odest, nir_op op)
       return false;
 
    /* Check the uses. We want a single use, with the op `op` */
+   if (!list_is_empty(&dest->ssa.if_uses))
+      return false;
+
    if (!list_is_singular(&dest->ssa.uses))
       return false;
 
    nir_src *use = list_first_entry(&dest->ssa.uses, nir_src, use_link);
-   if (use->is_if)
-      return false;
-
    nir_instr *parent = use->parent_instr;
 
    /* Check if the op is `op` */

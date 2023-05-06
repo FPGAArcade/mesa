@@ -694,7 +694,7 @@ schedule_SMEM(sched_ctx& ctx, Block* block, std::vector<RegisterDemand>& registe
          break;
 
       /* don't use LDS/GDS instructions to hide latency since it can
-       * significantly worsen LDS scheduling */
+       * significanly worsen LDS scheduling */
       if (candidate->isDS() || !can_move_down) {
          add_to_hazard_query(&hq, candidate.get());
          ctx.mv.downwards_skip(cursor);

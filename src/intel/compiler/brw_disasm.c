@@ -1548,7 +1548,7 @@ imm(FILE *file, const struct brw_isa_info *isa, enum brw_reg_type type,
       }
       break;
    case BRW_REGISTER_TYPE_DF:
-      format(file, "0x%016"PRIx64"DF", brw_inst_imm_uq(devinfo, inst));
+      format(file, "0x%016"PRIx64"DF", brw_inst_bits(inst, 127, 64));
       pad(file, 48);
       format(file, "/* %-gDF */", brw_inst_imm_df(devinfo, inst));
       break;
@@ -1964,10 +1964,7 @@ brw_disassemble_inst(FILE *file, const struct brw_isa_info *isa,
       err |= control(file, "function", sync_function,
                      brw_inst_cond_modifier(devinfo, inst), NULL);
 
-   } else if (!is_send(opcode) &&
-              (devinfo->ver < 12 ||
-               brw_inst_src0_reg_file(devinfo, inst) != BRW_IMMEDIATE_VALUE ||
-               type_sz(brw_inst_src0_type(devinfo, inst)) < 8)) {
+   } else if (!is_send(opcode)) {
       err |= control(file, "conditional modifier", conditional_modifier,
                      brw_inst_cond_modifier(devinfo, inst), NULL);
 

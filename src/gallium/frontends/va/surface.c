@@ -132,11 +132,6 @@ vlVaSyncSurface(VADriverContextP ctx, VASurfaceID render_target)
       return VA_STATUS_ERROR_INVALID_CONTEXT;
    }
 
-   if (!context->decoder) {
-      mtx_unlock(&drv->mutex);
-      return VA_STATUS_ERROR_UNSUPPORTED_ENTRYPOINT;
-   }
-
    if (context->decoder->entrypoint == PIPE_VIDEO_ENTRYPOINT_BITSTREAM) {
       int ret = 0;
 
@@ -215,11 +210,6 @@ vlVaQuerySurfaceStatus(VADriverContextP ctx, VASurfaceID render_target, VASurfac
    if (!context) {
       mtx_unlock(&drv->mutex);
       return VA_STATUS_ERROR_INVALID_CONTEXT;
-   }
-
-   if (!context->decoder) {
-      mtx_unlock(&drv->mutex);
-      return VA_STATUS_ERROR_UNSUPPORTED_ENTRYPOINT;
    }
 
    if (context->decoder->entrypoint == PIPE_VIDEO_ENTRYPOINT_ENCODE) {
@@ -548,13 +538,52 @@ vlVaQuerySurfaceAttributes(VADriverContextP ctx, VAConfigID config_id,
          }
       }
    }
-
-   if (config->rt_format & VA_RT_FORMAT_YUV420) {
+   if (config->profile == PIPE_VIDEO_PROFILE_AV1_MAIN &&
+         config->entrypoint == PIPE_VIDEO_ENTRYPOINT_BITSTREAM) {
       attribs[i].type = VASurfaceAttribPixelFormat;
       attribs[i].value.type = VAGenericValueTypeInteger;
       attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
       attribs[i].value.value.i = VA_FOURCC_NV12;
       i++;
+      attribs[i].type = VASurfaceAttribPixelFormat;
+      attribs[i].value.type = VAGenericValueTypeInteger;
+      attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
+      attribs[i].value.value.i = VA_FOURCC_P010;
+      i++;
+   } else {
+      if (config->rt_format & VA_RT_FORMAT_YUV420) {
+         attribs[i].type = VASurfaceAttribPixelFormat;
+         attribs[i].value.type = VAGenericValueTypeInteger;
+         attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
+         attribs[i].value.value.i = VA_FOURCC_NV12;
+         i++;
+      }
+
+      if (config->profile == PIPE_VIDEO_PROFILE_JPEG_BASELINE) {
+         if (config->rt_format & VA_RT_FORMAT_YUV400) {
+            attribs[i].type = VASurfaceAttribPixelFormat;
+            attribs[i].value.type = VAGenericValueTypeInteger;
+            attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
+            attribs[i].value.value.i = VA_FOURCC_Y800;
+            i++;
+         }
+
+         if (config->rt_format & VA_RT_FORMAT_YUV422) {
+            attribs[i].type = VASurfaceAttribPixelFormat;
+            attribs[i].value.type = VAGenericValueTypeInteger;
+            attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
+            attribs[i].value.value.i = VA_FOURCC_YUY2;
+            i++;
+         }
+
+         if (config->rt_format & VA_RT_FORMAT_YUV444) {
+            attribs[i].type = VASurfaceAttribPixelFormat;
+            attribs[i].value.type = VAGenericValueTypeInteger;
+            attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
+            attribs[i].value.value.i = VA_FOURCC_444P;
+            i++;
+         }
+      }
    }
 
    if (config->rt_format & VA_RT_FORMAT_YUV420_10 ||
@@ -570,39 +599,6 @@ vlVaQuerySurfaceAttributes(VADriverContextP ctx, VAConfigID config_id,
       attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
       attribs[i].value.value.i = VA_FOURCC_P016;
       i++;
-   }
-
-   if (config->profile == PIPE_VIDEO_PROFILE_JPEG_BASELINE) {
-      if (config->rt_format & VA_RT_FORMAT_YUV400) {
-         attribs[i].type = VASurfaceAttribPixelFormat;
-         attribs[i].value.type = VAGenericValueTypeInteger;
-         attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
-         attribs[i].value.value.i = VA_FOURCC_Y800;
-         i++;
-      }
-
-      if (config->rt_format & VA_RT_FORMAT_YUV422) {
-         attribs[i].type = VASurfaceAttribPixelFormat;
-         attribs[i].value.type = VAGenericValueTypeInteger;
-         attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
-         attribs[i].value.value.i = VA_FOURCC_YUY2;
-         i++;
-      }
-
-      if (config->rt_format & VA_RT_FORMAT_YUV444) {
-         attribs[i].type = VASurfaceAttribPixelFormat;
-         attribs[i].value.type = VAGenericValueTypeInteger;
-         attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
-         attribs[i].value.value.i = VA_FOURCC_444P;
-         i++;
-      }
-      if (config->rt_format & VA_RT_FORMAT_RGBP) {
-         attribs[i].type = VASurfaceAttribPixelFormat;
-         attribs[i].value.type = VAGenericValueTypeInteger;
-         attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
-         attribs[i].value.value.i = VA_FOURCC_RGBP;
-         i++;
-      }
    }
 
    attribs[i].type = VASurfaceAttribMemoryType;
@@ -640,28 +636,6 @@ vlVaQuerySurfaceAttributes(VADriverContextP ctx, VAConfigID config_id,
                                 PIPE_VIDEO_ENTRYPOINT_PROCESSING,
                                 PIPE_VIDEO_CAP_SUPPORTED))
    {
-      unsigned min_width, min_height;
-      min_width = pscreen->get_video_param(pscreen,
-                                  config->profile, config->entrypoint,
-                                  PIPE_VIDEO_CAP_MIN_WIDTH);
-      min_height = pscreen->get_video_param(pscreen,
-                                  config->profile, config->entrypoint,
-                                  PIPE_VIDEO_CAP_MIN_HEIGHT);
-
-      if (min_width > 0 && min_height > 0) {
-         attribs[i].type = VASurfaceAttribMinWidth;
-         attribs[i].value.type = VAGenericValueTypeInteger;
-         attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE;
-         attribs[i].value.value.i = min_width;
-         i++;
-
-         attribs[i].type = VASurfaceAttribMinHeight;
-         attribs[i].value.type = VAGenericValueTypeInteger;
-         attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE;
-         attribs[i].value.value.i = min_height;
-         i++;
-      }
-
       attribs[i].type = VASurfaceAttribMaxWidth;
       attribs[i].value.type = VAGenericValueTypeInteger;
       attribs[i].flags = VA_SURFACE_ATTRIB_GETTABLE;
@@ -1124,7 +1098,6 @@ vlVaCreateSurfaces2(VADriverContextP ctx, unsigned int format,
        VA_RT_FORMAT_YUV444 != format &&
        VA_RT_FORMAT_YUV400 != format &&
        VA_RT_FORMAT_YUV420_10BPP != format &&
-       VA_RT_FORMAT_RGBP != format &&
        VA_RT_FORMAT_RGB32  != format) {
       return VA_STATUS_ERROR_UNSUPPORTED_RT_FORMAT;
    }

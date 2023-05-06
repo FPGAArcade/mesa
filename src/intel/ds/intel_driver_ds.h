@@ -57,15 +57,12 @@ enum intel_ds_stall_flag {
    INTEL_DS_CS_STALL_BIT                     = BITFIELD_BIT(12),
    INTEL_DS_UNTYPED_DATAPORT_CACHE_FLUSH_BIT = BITFIELD_BIT(13),
    INTEL_DS_PSS_STALL_SYNC_BIT               = BITFIELD_BIT(14),
-   INTEL_DS_END_OF_PIPE_BIT                  = BITFIELD_BIT(15),
 };
 
 /* Convert internal driver PIPE_CONTROL stall bits to intel_ds_stall_flag. */
 typedef enum intel_ds_stall_flag (*intel_ds_stall_cb_t)(uint32_t flags);
 
 enum intel_ds_queue_stage {
-   INTEL_DS_QUEUE_STAGE_QUEUE,
-   INTEL_DS_QUEUE_STAGE_FRAME,
    INTEL_DS_QUEUE_STAGE_CMD_BUFFER,
    INTEL_DS_QUEUE_STAGE_GENERATE_DRAWS,
    INTEL_DS_QUEUE_STAGE_STALL,
@@ -106,9 +103,7 @@ struct intel_ds_device {
    /* Unique perfetto identifier for the context */
    uint64_t iid;
 
-   /* Event ID generator (manipulate only inside
-    * IntelRenderpassDataSource::Trace)
-    */
+   /* Event ID generator */
    uint64_t event_id;
 
    struct u_trace_context trace_context;
@@ -124,14 +119,8 @@ struct intel_ds_stage {
    /* Unique stage IID */
    uint64_t stage_iid;
 
-   /* Start timestamp of the last work element. We have a array indexed by
-    * level so that we can track multi levels of events (like
-    * primary/secondary command buffers).
-    */
-   uint64_t start_ns[5];
-
-   /* Current number of valid elements in start_ns */
-   uint32_t level;
+   /* Start timestamp of the last work element */
+   uint64_t start_ns;
 };
 
 struct intel_ds_queue {
@@ -139,6 +128,9 @@ struct intel_ds_queue {
 
    /* Device this queue belongs to */
    struct intel_ds_device *device;
+
+   /* Unique queue ID across the device */
+   uint32_t queue_id;
 
    /* Unique name of the queue */
    char name[80];

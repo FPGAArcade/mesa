@@ -157,10 +157,7 @@ bool
 nir_deref_instr_has_complex_use(nir_deref_instr *deref,
                                 nir_deref_instr_has_complex_use_options opts)
 {
-   nir_foreach_use_including_if(use_src, &deref->dest.ssa) {
-      if (use_src->is_if)
-         return true;
-
+   nir_foreach_use(use_src, &deref->dest.ssa) {
       nir_instr *use_instr = use_src->parent_instr;
 
       switch (use_instr->type) {
@@ -237,6 +234,9 @@ nir_deref_instr_has_complex_use(nir_deref_instr *deref,
          return true;
       }
    }
+
+   nir_foreach_if_use(use, &deref->dest.ssa)
+      return true;
 
    return false;
 }
@@ -769,8 +769,6 @@ rematerialize_deref_in_block(nir_deref_instr *deref,
 
    case nir_deref_type_cast:
       new_deref->cast.ptr_stride = deref->cast.ptr_stride;
-      new_deref->cast.align_mul = deref->cast.align_mul;
-      new_deref->cast.align_offset = deref->cast.align_offset;
       break;
 
    case nir_deref_type_array:
@@ -1145,12 +1143,7 @@ opt_replace_struct_wrapper_cast(nir_builder *b, nir_deref_instr *cast)
    if (glsl_get_struct_field_offset(parent->type, 0) != 0)
       return false;
 
-   const struct glsl_type *field_type = glsl_get_struct_field(parent->type, 0);
-   if (cast->type != field_type)
-      return false;
-
-   /* we can't drop the stride information */
-   if (cast->cast.ptr_stride != glsl_get_explicit_stride(field_type))
+   if (cast->type != glsl_get_struct_field(parent->type, 0))
       return false;
 
    nir_deref_instr *replace = nir_build_deref_struct(b, parent, 0);
@@ -1187,9 +1180,7 @@ opt_deref_cast(nir_builder *b, nir_deref_instr *cast)
    assert(cast->dest.is_ssa);
    assert(cast->parent.is_ssa);
 
-   nir_foreach_use_including_if_safe(use_src, &cast->dest.ssa) {
-      assert(!use_src->is_if && "there cannot be if-uses");
-
+   nir_foreach_use_safe(use_src, &cast->dest.ssa) {
       /* If this isn't a trivial array cast, we can't propagate into
        * ptr_as_array derefs.
        */
@@ -1200,6 +1191,9 @@ opt_deref_cast(nir_builder *b, nir_deref_instr *cast)
       nir_instr_rewrite_src(use_src->parent_instr, use_src, cast->parent);
       progress = true;
    }
+
+   /* If uses would be a bit crazy */
+   assert(list_is_empty(&cast->dest.ssa.if_uses));
 
    if (nir_deref_instr_remove_if_unused(cast))
       progress = true;

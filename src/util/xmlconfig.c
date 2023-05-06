@@ -59,7 +59,6 @@ static inline void regfree(regex_t* r) {}
 #include "strndup.h"
 #include "u_process.h"
 #include "os_file.h"
-#include "os_misc.h"
 
 /* For systems like Hurd */
 #ifndef PATH_MAX
@@ -383,7 +382,7 @@ driParseOptionInfo(driOptionCache *info,
       /* Built-in default values should always be valid. */
       assert(checkValue(optval, optinfo));
 
-      const char *envVal = os_get_option(name);
+      char *envVal = getenv(name);
       if (envVal != NULL) {
          driOptionValue v;
 
@@ -1199,11 +1198,6 @@ driParseConfigFiles(driOptionCache *cache, const driOptionCache *info,
    initOptionCache(cache, info);
    struct OptConfData userData = {0};
 
-   if (!execname)
-      execname = os_get_option("MESA_DRICONF_EXECUTABLE_OVERRIDE");
-   if (!execname)
-      execname = util_get_process_name();
-
    userData.cache = cache;
    userData.screenNum = screenNum;
    userData.driverName = driverName;
@@ -1213,7 +1207,7 @@ driParseConfigFiles(driOptionCache *cache, const driOptionCache *info,
    userData.applicationVersion = applicationVersion;
    userData.engineName = engineName ? engineName : "";
    userData.engineVersion = engineVersion;
-   userData.execName = execname;
+   userData.execName = execname ? execname : util_get_process_name();
 
 #if WITH_XMLCONFIG
    char *home;

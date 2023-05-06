@@ -295,7 +295,7 @@ r600_bytecode_write_export_ack_type(struct r600_bytecode *bc, bool indirect)
 	}
 }
 
-/* alu instructions that can only exits once per group */
+/* alu instructions that can ony exits once per group */
 static int is_alu_once_inst(struct r600_bytecode_alu *alu)
 {
 	return r600_isa_alu(alu->op)->flags & (AF_KILL | AF_PRED) || alu->is_lds_idx_op || alu->op == ALU_OP0_GROUP_BARRIER;
@@ -611,7 +611,7 @@ static int check_and_set_bank_swizzle(const struct r600_bytecode *bc,
 		return 0;
 
 	/* Just check every possible combination of bank swizzle.
-	 * Not very efficient, but works on the first try in most of the cases. */
+	 * Not very efficent, but works on the first try in most of the cases. */
 	for (i = 0; i < 4; i++)
 		if (!slots[i] || !slots[i]->bank_swizzle_force || slots[i]->is_lds_idx_op)
 			bank_swizzle[i] = SQ_ALU_VEC_012;
@@ -962,7 +962,7 @@ static int merge_inst_groups(struct r600_bytecode *bc, struct r600_bytecode_alu 
 				if (!prev[j] || !alu_writes(prev[j]))
 					continue;
 
-				/* If it's relative then we can't determine which gpr is really used. */
+				/* If it's relative then we can't determin which gpr is really used. */
 				if (prev[j]->dst.chan == alu->src[src].chan &&
 					(prev[j]->dst.sel == alu->src[src].sel ||
 					prev[j]->dst.rel || alu->src[src].rel))
@@ -982,7 +982,7 @@ static int merge_inst_groups(struct r600_bytecode *bc, struct r600_bytecode_alu 
 
 	/* looks like everything worked out right, apply the changes */
 
-	/* undo adding previous literals */
+	/* undo adding previus literals */
 	bc->cf_last->ndw -= align(prev_nliteral, 2);
 
 	/* sort instructions */
@@ -1443,11 +1443,11 @@ static unsigned r600_bytecode_num_tex_and_vtx_instructions(const struct r600_byt
 	}
 }
 
-static inline boolean last_inst_was_not_vtx_fetch(struct r600_bytecode *bc, bool use_tc)
+static inline boolean last_inst_was_not_vtx_fetch(struct r600_bytecode *bc)
 {
 	return !((r600_isa_cf(bc->cf_last->op)->flags & CF_FETCH) &&
 		 bc->cf_last->op != CF_OP_GDS &&
-		 (bc->gfx_level == CAYMAN || use_tc ||
+		 (bc->gfx_level == CAYMAN ||
 		  bc->cf_last->op != CF_OP_TEX));
 }
 
@@ -1467,10 +1467,9 @@ static int r600_bytecode_add_vtx_internal(struct r600_bytecode *bc, const struct
 			egcm_load_index_reg(bc, vtx->buffer_index_mode - 1, false);
 	}
 
-
 	/* cf can contains only alu or only vtx or only tex */
 	if (bc->cf_last == NULL ||
-	    last_inst_was_not_vtx_fetch(bc, use_tc) ||
+	    last_inst_was_not_vtx_fetch(bc) ||
 	    bc->force_add_cf) {
 		r = r600_bytecode_add_cf(bc);
 		if (r) {

@@ -46,7 +46,11 @@ v3dv_hal_open(const struct hw_module_t *mod,
 static int
 v3dv_hal_close(struct hw_device_t *dev);
 
-static_assert(HWVULKAN_DISPATCH_MAGIC == ICD_LOADER_MAGIC, "");
+static void UNUSED
+static_asserts(void)
+{
+   STATIC_ASSERT(HWVULKAN_DISPATCH_MAGIC == ICD_LOADER_MAGIC);
+}
 
 PUBLIC struct hwvulkan_module_t HAL_MODULE_INFO_SYM = {
    .common =
@@ -252,13 +256,12 @@ v3dv_import_native_buffer_fd(VkDevice device_h,
       .fd = os_dupfd_cloexec(native_buffer_fd),
    };
 
-   assert(image->plane_count == 1);
    result =
       v3dv_AllocateMemory(device_h,
                           &(VkMemoryAllocateInfo) {
                              .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
                              .pNext = &import_info,
-                             .allocationSize = image->planes[0].size,
+                             .allocationSize = image->size,
                              .memoryTypeIndex = 0,
                           },
                           alloc, &memory_h);

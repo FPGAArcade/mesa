@@ -22,7 +22,6 @@
  */
 
 #include <assert.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -43,6 +42,7 @@
 #include "pvr_srv_sync.h"
 #include "pvr_types.h"
 #include "pvr_winsys.h"
+#include "util/libsync.h"
 #include "util/log.h"
 #include "util/macros.h"
 #include "vk_alloc.h"
@@ -662,9 +662,6 @@ static void pvr_srv_fragment_cmd_init(
 
    if (state->flags & PVR_WINSYS_FRAG_FLAG_GET_VIS_RESULTS)
       cmd->flags |= ROGUE_FWIF_RENDERFLAGS_GETVISRESULTS;
-
-   if (state->flags & PVR_WINSYS_FRAG_FLAG_SPMSCRATCHBUFFER)
-      cmd->flags |= ROGUE_FWIF_RENDERFLAGS_SPMSCRATCHBUFFER;
 }
 
 VkResult pvr_srv_winsys_render_submit(
@@ -700,32 +697,60 @@ VkResult pvr_srv_winsys_render_submit(
    pvr_srv_geometry_cmd_init(submit_info, sync_prim, &geom_cmd, dev_info);
    pvr_srv_fragment_cmd_init(submit_info, &frag_cmd, dev_info);
 
-   if (submit_info->geometry.wait) {
+   for (uint32_t i = 0U; i < submit_info->wait_count; i++) {
+      struct pvr_srv_sync *srv_wait_sync = to_srv_sync(submit_info->waits[i]);
+      int ret;
+
+      if (!submit_info->waits[i] || srv_wait_sync->fd < 0)
+         continue;
+
+      if (submit_info->stage_flags[i] & PVR_PIPELINE_STAGE_GEOM_BIT) {
+         ret = sync_accumulate("", &in_geom_fd, srv_wait_sync->fd);
+         if (ret) {
+            result = vk_error(NULL, VK_ERROR_OUT_OF_HOST_MEMORY);
+            goto end_close_in_fds;
+         }
+
+         submit_info->stage_flags[i] &= ~PVR_PIPELINE_STAGE_GEOM_BIT;
+      }
+
+      if (submit_info->stage_flags[i] & PVR_PIPELINE_STAGE_FRAG_BIT) {
+         ret = sync_accumulate("", &in_frag_fd, srv_wait_sync->fd);
+         if (ret) {
+            result = vk_error(NULL, VK_ERROR_OUT_OF_HOST_MEMORY);
+            goto end_close_in_fds;
+         }
+
+         submit_info->stage_flags[i] &= ~PVR_PIPELINE_STAGE_FRAG_BIT;
+      }
+   }
+
+   if (submit_info->barrier_geom) {
       struct pvr_srv_sync *srv_wait_sync =
-         to_srv_sync(submit_info->geometry.wait);
+         to_srv_sync(submit_info->barrier_geom);
 
       if (srv_wait_sync->fd >= 0) {
-         in_geom_fd = dup(srv_wait_sync->fd);
-         if (in_geom_fd == -1) {
-            return vk_errorf(NULL,
-                             VK_ERROR_OUT_OF_HOST_MEMORY,
-                             "dup called on wait sync failed, Errno: %s",
-                             strerror(errno));
+         int ret;
+
+         ret = sync_accumulate("", &in_geom_fd, srv_wait_sync->fd);
+         if (ret) {
+            result = vk_error(NULL, VK_ERROR_OUT_OF_HOST_MEMORY);
+            goto end_close_in_fds;
          }
       }
    }
 
-   if (submit_info->fragment.wait) {
+   if (submit_info->barrier_frag) {
       struct pvr_srv_sync *srv_wait_sync =
-         to_srv_sync(submit_info->fragment.wait);
+         to_srv_sync(submit_info->barrier_frag);
 
       if (srv_wait_sync->fd >= 0) {
-         in_frag_fd = dup(srv_wait_sync->fd);
-         if (in_frag_fd == -1) {
-            return vk_errorf(NULL,
-                             VK_ERROR_OUT_OF_HOST_MEMORY,
-                             "dup called on wait sync failed, Errno: %s",
-                             strerror(errno));
+         int ret;
+
+         ret = sync_accumulate("", &in_frag_fd, srv_wait_sync->fd);
+         if (ret) {
+            result = vk_error(NULL, VK_ERROR_OUT_OF_HOST_MEMORY);
+            goto end_close_in_fds;
          }
       }
    }
@@ -741,12 +766,6 @@ VkResult pvr_srv_winsys_render_submit(
    sync_prim->value++;
 
    do {
-      /* The fw allows the ZS and MSAA scratch buffers to be lazily allocated in
-       * which case we need to provide a status update (i.e. if they are
-       * physically backed or not) to the fw. In our case they will always be
-       * physically backed so no need to inform the fw about their status and
-       * pass in anything. We'll just pass in NULL.
-       */
       result = pvr_srv_rgx_kick_render2(srv_ws->render_fd,
                                         srv_ctx->handle,
                                         0,
@@ -789,7 +808,9 @@ VkResult pvr_srv_winsys_render_submit(
                                         false,
                                         0,
                                         rt_data_handle,
+                                        /* Currently no support for PRs. */
                                         NULL,
+                                        /* Currently no support for PRs. */
                                         NULL,
                                         0,
                                         NULL,

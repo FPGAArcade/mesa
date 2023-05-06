@@ -151,6 +151,12 @@ resolve_image_views(struct iris_context *ice,
                                                    res->aux.clear_color_unknown))
             clear_supported = false;
 
+         /* Issues with compressed cube array image views, see
+          * https://gitlab.freedesktop.org/mesa/mesa/-/issues/7987
+          */
+         if (pview->resource->target == PIPE_TEXTURE_CUBE_ARRAY)
+            clear_supported = false;
+
          iris_resource_prepare_access(ice, res,
                                       pview->u.tex.level, 1,
                                       pview->u.tex.first_layer, num_layers,
@@ -751,8 +757,8 @@ miptree_level_range_length(const struct iris_resource *res,
 {
    assert(start_level < res->surf.levels);
 
-   if (num_levels == INTEL_REMAINING_LEVELS)
-      num_levels = res->surf.levels - start_level;
+   if (num_levels == INTEL_REMAINING_LAYERS)
+      num_levels = res->surf.levels;
 
    /* Check for overflow */
    assert(start_level + num_levels >= start_level);

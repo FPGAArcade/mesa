@@ -111,7 +111,8 @@ dri2_destroy_context(struct glx_context *context)
 }
 
 static Bool
-dri2_bind_context(struct glx_context *context, GLXDrawable draw, GLXDrawable read)
+dri2_bind_context(struct glx_context *context, struct glx_context *old,
+		  GLXDrawable draw, GLXDrawable read)
 {
    struct dri2_screen *psc = (struct dri2_screen *) context->psc;
    struct dri2_drawable *pdraw, *pread;
@@ -139,7 +140,7 @@ dri2_bind_context(struct glx_context *context, GLXDrawable draw, GLXDrawable rea
 }
 
 static void
-dri2_unbind_context(struct glx_context *context)
+dri2_unbind_context(struct glx_context *context, struct glx_context *new)
 {
    struct dri2_screen *psc = (struct dri2_screen *) context->psc;
 
@@ -168,10 +169,8 @@ dri2_create_context_attribs(struct glx_screen *base,
       goto error_exit;
 
    /* Check the renderType value */
-   if (!validate_renderType_against_config(config_base, dca.render_type)) {
-      *error = BadValue;
-      goto error_exit;
-   }
+   if (!validate_renderType_against_config(config_base, dca.render_type))
+       goto error_exit;
 
    if (shareList) {
       /* We can't share with an indirect context */
@@ -185,7 +184,7 @@ dri2_create_context_attribs(struct glx_screen *base,
        *    GLX_CONTEXT_OPENGL_NO_ERROR_ARB for the context being created.
        */
       if (!!shareList->noError != !!dca.no_error) {
-         *error = BadMatch;
+         *error = __DRI_CTX_ERROR_BAD_FLAG;
          return NULL;
       }
 
@@ -194,7 +193,7 @@ dri2_create_context_attribs(struct glx_screen *base,
 
    pcp = calloc(1, sizeof *pcp);
    if (pcp == NULL) {
-      *error = BadAlloc;
+      *error = __DRI_CTX_ERROR_NO_MEMORY;
       goto error_exit;
    }
 
@@ -245,8 +244,6 @@ dri2_create_context_attribs(struct glx_screen *base,
 					  ctx_attribs,
 					  error,
 					  pcp);
-
-   *error = dri_context_error_to_glx_error(*error);
 
    if (pcp->driContext == NULL)
       goto error_exit;

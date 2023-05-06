@@ -19,6 +19,10 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
+ *
+ * Authors:
+ *    Jason Ekstrand (jason@jlekstrand.net)
+ *
  */
 
 #include <inttypes.h>
@@ -125,6 +129,11 @@ nir_op_matches_search_op(nir_op nop, uint16_t sop)
              nop == nir_op_##op##32 || \
              nop == nir_op_##op##64;
 
+#define MATCH_BCONV_CASE(op) \
+   case nir_search_op_##op: \
+      return nop == nir_op_##op##1 || \
+             nop == nir_op_##op##32;
+
    switch (sop) {
    MATCH_FCONV_CASE(i2f)
    MATCH_FCONV_CASE(u2f)
@@ -135,12 +144,14 @@ nir_op_matches_search_op(nir_op nop, uint16_t sop)
    MATCH_ICONV_CASE(i2i)
    MATCH_FCONV_CASE(b2f)
    MATCH_ICONV_CASE(b2i)
+   MATCH_BCONV_CASE(f2b)
    default:
       unreachable("Invalid nir_search_op");
    }
 
 #undef MATCH_FCONV_CASE
 #undef MATCH_ICONV_CASE
+#undef MATCH_BCONV_CASE
 }
 
 uint16_t
@@ -159,6 +170,11 @@ nir_search_op_for_nir_op(nir_op nop)
    case nir_op_##op##64: \
       return nir_search_op_##op;
 
+#define MATCH_BCONV_CASE(op) \
+   case nir_op_##op##1: \
+   case nir_op_##op##32: \
+      return nir_search_op_##op;
+
 
    switch (nop) {
    MATCH_FCONV_CASE(i2f)
@@ -170,12 +186,14 @@ nir_search_op_for_nir_op(nir_op nop)
    MATCH_ICONV_CASE(i2i)
    MATCH_FCONV_CASE(b2f)
    MATCH_ICONV_CASE(b2i)
+   MATCH_BCONV_CASE(f2b)
    default:
       return nop;
    }
 
 #undef MATCH_FCONV_CASE
 #undef MATCH_ICONV_CASE
+#undef MATCH_BCONV_CASE
 }
 
 static nir_op
@@ -203,6 +221,14 @@ nir_op_for_search_op(uint16_t sop, unsigned bit_size)
       default: unreachable("Invalid bit size"); \
       }
 
+#define RET_BCONV_CASE(op) \
+   case nir_search_op_##op: \
+      switch (bit_size) { \
+      case 1: return nir_op_##op##1; \
+      case 32: return nir_op_##op##32; \
+      default: unreachable("Invalid bit size"); \
+      }
+
    switch (sop) {
    RET_FCONV_CASE(i2f)
    RET_FCONV_CASE(u2f)
@@ -213,12 +239,14 @@ nir_op_for_search_op(uint16_t sop, unsigned bit_size)
    RET_ICONV_CASE(i2i)
    RET_FCONV_CASE(b2f)
    RET_ICONV_CASE(b2i)
+   RET_BCONV_CASE(f2b)
    default:
       unreachable("Invalid nir_search_op");
    }
 
 #undef RET_FCONV_CASE
 #undef RET_ICONV_CASE
+#undef RET_BCONV_CASE
 }
 
 static bool
@@ -587,6 +615,7 @@ UNUSED static void dump_value(const nir_algebraic_table *table, const nir_search
       switch (expr->opcode) {
 #define CASE(n) \
       case nir_search_op_##n: fprintf(stderr, #n); break;
+      CASE(f2b)
       CASE(b2f)
       CASE(b2i)
       CASE(i2i)

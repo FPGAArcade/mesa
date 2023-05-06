@@ -26,7 +26,6 @@
 
 #include "sfn_instr_mem.h"
 
-#include "nir_intrinsics_indices.h"
 #include "sfn_instr_fetch.h"
 #include "sfn_instr_tex.h"
 #include "sfn_shader.h"
@@ -886,7 +885,7 @@ RatInstr::emit_image_size(nir_intrinsic_instr *intrin, Shader& shader)
    auto const_offset = nir_src_as_const_value(intrin->src[0]);
    PRegister dyn_offset = nullptr;
 
-   int res_id = R600_IMAGE_REAL_RESOURCE_OFFSET + nir_intrinsic_range_base(intrin);
+   int res_id = R600_IMAGE_REAL_RESOURCE_OFFSET;
    if (const_offset)
       res_id += const_offset[0].u32;
    else
@@ -924,7 +923,7 @@ RatInstr::emit_image_size(nir_intrinsic_instr *intrin, Shader& shader)
                                        R600_BUFFER_INFO_CONST_BUFFER),
                             AluInstr::last_write));
          } else {
-            /* If the addressing is indirect we have to get the z-value by
+            /* If the adressing is indirect we have to get the z-value by
              * using a binary search */
             auto addr = vf.temp_register();
             auto comp1 = vf.temp_register();

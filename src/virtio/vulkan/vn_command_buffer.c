@@ -924,6 +924,9 @@ vn_cmd_submit(struct vn_command_buffer *cmd)
       return;
    }
 
+   if (unlikely(!instance->renderer->info.supports_blob_id_0))
+      vn_instance_wait_roundtrip(instance, cmd->cs.current_buffer_roundtrip);
+
    if (vn_instance_ring_submit(instance, &cmd->cs) != VK_SUCCESS) {
       cmd->state = VN_COMMAND_BUFFER_STATE_INVALID;
       return;
@@ -1451,8 +1454,8 @@ vn_CmdSetEvent(VkCommandBuffer commandBuffer,
 {
    VN_CMD_ENQUEUE(vkCmdSetEvent, commandBuffer, event, stageMask);
 
-   vn_feedback_event_cmd_record(commandBuffer, event, stageMask, VK_EVENT_SET,
-                                false);
+   vn_feedback_event_cmd_record(commandBuffer, event, stageMask,
+                                VK_EVENT_SET);
 }
 
 static VkPipelineStageFlags2
@@ -1488,8 +1491,8 @@ vn_CmdSetEvent2(VkCommandBuffer commandBuffer,
    VkPipelineStageFlags2 src_stage_mask =
       vn_dependency_info_collect_src_stage_mask(pDependencyInfo);
 
-   vn_feedback_event_cmd_record(commandBuffer, event, src_stage_mask,
-                                VK_EVENT_SET, true);
+   vn_feedback_event_cmd_record2(commandBuffer, event, src_stage_mask,
+                                 VK_EVENT_SET);
 }
 
 void
@@ -1500,7 +1503,7 @@ vn_CmdResetEvent(VkCommandBuffer commandBuffer,
    VN_CMD_ENQUEUE(vkCmdResetEvent, commandBuffer, event, stageMask);
 
    vn_feedback_event_cmd_record(commandBuffer, event, stageMask,
-                                VK_EVENT_RESET, false);
+                                VK_EVENT_RESET);
 }
 
 void
@@ -1509,8 +1512,8 @@ vn_CmdResetEvent2(VkCommandBuffer commandBuffer,
                   VkPipelineStageFlags2 stageMask)
 {
    VN_CMD_ENQUEUE(vkCmdResetEvent2, commandBuffer, event, stageMask);
-   vn_feedback_event_cmd_record(commandBuffer, event, stageMask,
-                                VK_EVENT_RESET, true);
+   vn_feedback_event_cmd_record2(commandBuffer, event, stageMask,
+                                 VK_EVENT_RESET);
 }
 
 void

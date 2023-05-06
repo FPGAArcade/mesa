@@ -56,7 +56,11 @@ extern "C" {
 
 extern unsigned gallivm_perf;
 
+#ifdef DEBUG
 extern unsigned gallivm_debug;
+#else
+#define gallivm_debug 0
+#endif
 
 
 static inline void

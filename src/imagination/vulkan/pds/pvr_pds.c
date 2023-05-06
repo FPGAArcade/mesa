@@ -433,18 +433,22 @@ void pvr_pds_pixel_shader_sa_initialize(
  * \param dest_offset Destination offset in the attribute.
  * \param dma_size The size of the DMA in words.
  * \param src_address Source address for the burst.
- * \param last Last DMA in program.
  * \param dev_info PVR device info structure.
  * \returns The number of DMA transfers required.
  */
+
 uint32_t pvr_pds_encode_dma_burst(uint32_t *dma_control,
                                   uint64_t *dma_address,
                                   uint32_t dest_offset,
                                   uint32_t dma_size,
                                   uint64_t src_address,
-                                  bool last,
                                   const struct pvr_device_info *dev_info)
 {
+   /* Simplified for MS2. */
+
+   /* Force to 1 DMA. */
+   const uint32_t num_kicks = 1;
+
    dma_control[0] = dma_size
                     << PVR_ROGUE_PDSINST_DOUT_FIELDS_DOUTD_SRC1_BSIZE_SHIFT;
    dma_control[0] |= dest_offset
@@ -453,15 +457,12 @@ uint32_t pvr_pds_encode_dma_burst(uint32_t *dma_control,
    dma_control[0] |= PVR_ROGUE_PDSINST_DOUT_FIELDS_DOUTD_SRC1_CMODE_CACHED |
                      PVR_ROGUE_PDSINST_DOUT_FIELDS_DOUTD_SRC1_DEST_COMMON_STORE;
 
-   if (last)
-      dma_control[0] |= PVR_ROGUE_PDSINST_DOUT_FIELDS_DOUTD_SRC1_LAST_EN;
-
    dma_address[0] = src_address;
-   if (PVR_HAS_FEATURE(dev_info, slc_mcu_cache_controls))
+   if (PVR_HAS_FEATURE(dev_info, slc_mcu_cache_controls)) {
       dma_address[0] |= PVR_ROGUE_PDSINST_DOUT_FIELDS_DOUTD_SRC0_SLCMODE_CACHED;
+   }
 
-   /* Force to 1 DMA. */
-   return 1;
+   return num_kicks;
 }
 
 /* FIXME: use the csbgen interface and pvr_csb_pack.
@@ -1119,7 +1120,7 @@ pvr_pds_vertex_shader(struct pvr_pds_vertex_shader_program *restrict program,
                if (shift < -31) {
                   /* >> (31) */
                   shift_2s_comp = 0xFFFE1;
-                  *buffer++ = pvr_pds_inst_encode_sftlp64(
+                  *buffer++ = pvr_pds_inst_encode_stflp64(
                      /* cc */ 0,
                      /* LOP */ PVR_ROGUE_PDSINST_LOP_NONE,
                      /* IM */ 1, /*  enable immediate */
@@ -1136,7 +1137,7 @@ pvr_pds_vertex_shader(struct pvr_pds_vertex_shader_program *restrict program,
                 * new: >> (shift + 31)
                 */
                shift_2s_comp = *((uint32_t *)&shift);
-               *buffer++ = pvr_pds_inst_encode_sftlp64(
+               *buffer++ = pvr_pds_inst_encode_stflp64(
                   /* cc */ 0,
                   /* LOP */ PVR_ROGUE_PDSINST_LOP_NONE,
                   /* IM */ 1, /*enable immediate */
@@ -1168,7 +1169,7 @@ pvr_pds_vertex_shader(struct pvr_pds_vertex_shader_program *restrict program,
                /* 2's complement of shift as this will be a right shift. */
                shift_2s_comp = ~(vertex_stream->shift) + 1;
 
-               *buffer++ = pvr_pds_inst_encode_sftlp32(
+               *buffer++ = pvr_pds_inst_encode_stflp32(
                   /* IM */ 1, /*  enable immediate. */
                   /* cc */ 0,
                   /* LOP */ PVR_ROGUE_PDSINST_LOP_NONE,
@@ -1257,7 +1258,7 @@ pvr_pds_vertex_shader(struct pvr_pds_vertex_shader_program *restrict program,
                }
 
                if (temp != pre_index_temp) {
-                  *buffer++ = pvr_pds_inst_encode_sftlp32(
+                  *buffer++ = pvr_pds_inst_encode_stflp32(
                      /* IM */ 1, /*  enable immediate. */
                      /* cc */ 0,
                      /* LOP */ PVR_ROGUE_PDSINST_LOP_NONE,
@@ -1267,7 +1268,7 @@ pvr_pds_vertex_shader(struct pvr_pds_vertex_shader_program *restrict program,
                      /* DST */ index_temp64);
                }
 
-               *buffer++ = pvr_pds_inst_encode_sftlp32(
+               *buffer++ = pvr_pds_inst_encode_stflp32(
                   /* IM */ 1, /*  enable immediate. */
                   /* cc */ 0,
                   /* LOP */ PVR_ROGUE_PDSINST_LOP_OR,
@@ -2276,7 +2277,7 @@ pvr_pds_compute_shader(struct pvr_pds_compute_shader_program *restrict program,
             APPEND(pvr_pds_inst_encode_wdf(0));
 
             for (uint32_t i = 0; i < 4; i++) {
-               APPEND(pvr_pds_inst_encode_sftlp32(
+               APPEND(pvr_pds_inst_encode_stflp32(
                   1, /* enable immediate */
                   0, /* cc */
                   PVR_ROGUE_PDSINST_LOP_AND, /* LOP */
@@ -2286,7 +2287,7 @@ pvr_pds_compute_shader(struct pvr_pds_compute_shader_program *restrict program,
                   cond_render_pred_temp + i)); /* DST */
 
                APPEND(
-                  pvr_pds_inst_encode_sftlp32(1, /* enable immediate */
+                  pvr_pds_inst_encode_stflp32(1, /* enable immediate */
                                               0, /* cc */
                                               PVR_ROGUE_PDSINST_LOP_OR, /* LOP
                                                                          */
@@ -2303,7 +2304,7 @@ pvr_pds_compute_shader(struct pvr_pds_compute_shader_program *restrict program,
                                             0, /* SRC0 */
                                             0)); /* GLOBALREG */
 
-            APPEND(pvr_pds_inst_encode_sftlp32(1, /* enable immediate */
+            APPEND(pvr_pds_inst_encode_stflp32(1, /* enable immediate */
                                                0, /* cc */
                                                PVR_ROGUE_PDSINST_LOP_XOR, /* LOP
                                                                            */

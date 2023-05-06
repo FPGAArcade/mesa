@@ -135,9 +135,9 @@ public:
    AluInstr *m_last_lds_instr{nullptr};
 };
 
-class BlockScheduler {
+class BlockSheduler {
 public:
-   BlockScheduler(r600_chip_class chip_class);
+   BlockSheduler(r600_chip_class chip_class);
    void run(Shader *shader);
 
    void finalize();
@@ -206,7 +206,7 @@ private:
    Block *m_current_block;
 
    int m_lds_addr_count{0};
-   int m_alu_groups_scheduled{0};
+   int m_alu_groups_schduled{0};
    r600_chip_class m_chip_class;
 };
 
@@ -227,7 +227,7 @@ schedule(Shader *original)
    // to be able to re-start scheduling
 
    auto scheduled_shader = original;
-   BlockScheduler s(original->chip_class());
+   BlockSheduler s(original->chip_class());
    s.run(scheduled_shader);
    s.finalize();
 
@@ -241,7 +241,7 @@ schedule(Shader *original)
    return scheduled_shader;
 }
 
-BlockScheduler::BlockScheduler(r600_chip_class chip_class):
+BlockSheduler::BlockSheduler(r600_chip_class chip_class):
     current_shed(sched_alu),
     m_last_pos(nullptr),
     m_last_pixel(nullptr),
@@ -252,7 +252,7 @@ BlockScheduler::BlockScheduler(r600_chip_class chip_class):
 }
 
 void
-BlockScheduler::run(Shader *shader)
+BlockSheduler::run(Shader *shader)
 {
    Shader::ShaderBlocks scheduled_blocks;
 
@@ -270,7 +270,7 @@ BlockScheduler::run(Shader *shader)
 }
 
 void
-BlockScheduler::schedule_block(Block& in_block,
+BlockSheduler::schedule_block(Block& in_block,
                               Shader::ShaderBlocks& out_blocks,
                               ValueFactory& vf)
 {
@@ -460,7 +460,7 @@ BlockScheduler::schedule_block(Block& in_block,
 }
 
 void
-BlockScheduler::finalize()
+BlockSheduler::finalize()
 {
    if (m_last_pos)
       m_last_pos->set_is_last_export(true);
@@ -471,7 +471,7 @@ BlockScheduler::finalize()
 }
 
 bool
-BlockScheduler::schedule_alu(Shader::ShaderBlocks& out_blocks)
+BlockSheduler::schedule_alu(Shader::ShaderBlocks& out_blocks)
 {
    bool success = false;
    AluGroup *group = nullptr;
@@ -485,11 +485,11 @@ BlockScheduler::schedule_alu(Shader::ShaderBlocks& out_blocks)
    if (has_alu_ready || !alu_groups_ready.empty()) {
       if (m_current_block->type() != Block::alu) {
          start_new_block(out_blocks, Block::alu);
-         m_alu_groups_scheduled = 0;
+         m_alu_groups_schduled = 0;
       }
    }
 
-   /* Schedule groups first. unless we have a pending LDS instruction
+   /* Schedule groups first. unless we have a pending LDS instuction
     * We don't want the LDS instructions to be too far apart because the
     * fetch + read from queue has to be in the same ALU CF block */
    if (!alu_groups_ready.empty() && !has_lds_ready) {
@@ -533,7 +533,7 @@ BlockScheduler::schedule_alu(Shader::ShaderBlocks& out_blocks)
       }
 
       if (success) {
-         ++m_alu_groups_scheduled;
+         ++m_alu_groups_schduled;
          break;
       } else if (m_current_block->kcache_reservation_failed()) {
          // LDS read groups should not lead to impossible
@@ -570,7 +570,7 @@ BlockScheduler::schedule_alu(Shader::ShaderBlocks& out_blocks)
 }
 
 bool
-BlockScheduler::schedule_tex(Shader::ShaderBlocks& out_blocks)
+BlockSheduler::schedule_tex(Shader::ShaderBlocks& out_blocks)
 {
    if (m_current_block->type() != Block::tex || m_current_block->remaining_slots() == 0) {
       start_new_block(out_blocks, Block::tex);
@@ -598,7 +598,7 @@ BlockScheduler::schedule_tex(Shader::ShaderBlocks& out_blocks)
 }
 
 bool
-BlockScheduler::schedule_vtx(Shader::ShaderBlocks& out_blocks)
+BlockSheduler::schedule_vtx(Shader::ShaderBlocks& out_blocks)
 {
    if (m_current_block->type() != Block::vtx || m_current_block->remaining_slots() == 0) {
       start_new_block(out_blocks, Block::vtx);
@@ -609,7 +609,7 @@ BlockScheduler::schedule_vtx(Shader::ShaderBlocks& out_blocks)
 
 template <typename I>
 bool
-BlockScheduler::schedule_gds(Shader::ShaderBlocks& out_blocks, std::list<I *>& ready_list)
+BlockSheduler::schedule_gds(Shader::ShaderBlocks& out_blocks, std::list<I *>& ready_list)
 {
    bool was_full = m_current_block->remaining_slots() == 0;
    if (m_current_block->type() != Block::gds || was_full) {
@@ -621,7 +621,7 @@ BlockScheduler::schedule_gds(Shader::ShaderBlocks& out_blocks, std::list<I *>& r
 }
 
 void
-BlockScheduler::start_new_block(Shader::ShaderBlocks& out_blocks, Block::Type type)
+BlockSheduler::start_new_block(Shader::ShaderBlocks& out_blocks, Block::Type type)
 {
    if (!m_current_block->empty()) {
       sfn_log << SfnLog::schedule << "Start new block\n";
@@ -635,7 +635,7 @@ BlockScheduler::start_new_block(Shader::ShaderBlocks& out_blocks, Block::Type ty
 
 template <typename I>
 bool
-BlockScheduler::schedule_cf(Shader::ShaderBlocks& out_blocks, std::list<I *>& ready_list)
+BlockSheduler::schedule_cf(Shader::ShaderBlocks& out_blocks, std::list<I *>& ready_list)
 {
    if (ready_list.empty())
       return false;
@@ -645,7 +645,7 @@ BlockScheduler::schedule_cf(Shader::ShaderBlocks& out_blocks, std::list<I *>& re
 }
 
 bool
-BlockScheduler::schedule_alu_to_group_vec(AluGroup *group)
+BlockSheduler::schedule_alu_to_group_vec(AluGroup *group)
 {
    assert(group);
    assert(!alu_vec_ready.empty());
@@ -681,7 +681,7 @@ BlockScheduler::schedule_alu_to_group_vec(AluGroup *group)
 }
 
 bool
-BlockScheduler::schedule_alu_to_group_trans(AluGroup *group,
+BlockSheduler::schedule_alu_to_group_trans(AluGroup *group,
                                            std::list<AluInstr *>& readylist)
 {
    assert(group);
@@ -702,7 +702,7 @@ BlockScheduler::schedule_alu_to_group_trans(AluGroup *group,
          ++i;
          readylist.erase(old_i);
          success = true;
-         sfn_log << SfnLog::schedule << " success\n";
+         sfn_log << SfnLog::schedule << " sucess\n";
          break;
       } else {
          ++i;
@@ -714,7 +714,7 @@ BlockScheduler::schedule_alu_to_group_trans(AluGroup *group,
 
 template <typename I>
 bool
-BlockScheduler::schedule(std::list<I *>& ready_list)
+BlockSheduler::schedule(std::list<I *>& ready_list)
 {
    if (!ready_list.empty() && m_current_block->remaining_slots() > 0) {
       auto ii = ready_list.begin();
@@ -729,7 +729,7 @@ BlockScheduler::schedule(std::list<I *>& ready_list)
 
 template <typename I>
 bool
-BlockScheduler::schedule_block(std::list<I *>& ready_list)
+BlockSheduler::schedule_block(std::list<I *>& ready_list)
 {
    bool success = false;
    while (!ready_list.empty() && m_current_block->remaining_slots() > 0) {
@@ -745,7 +745,7 @@ BlockScheduler::schedule_block(std::list<I *>& ready_list)
 }
 
 bool
-BlockScheduler::schedule_exports(Shader::ShaderBlocks& out_blocks,
+BlockSheduler::schedule_exports(Shader::ShaderBlocks& out_blocks,
                                 std::list<ExportInstr *>& ready_list)
 {
    if (m_current_block->type() != Block::cf)
@@ -775,7 +775,7 @@ BlockScheduler::schedule_exports(Shader::ShaderBlocks& out_blocks,
 }
 
 bool
-BlockScheduler::collect_ready(CollectInstructions& available)
+BlockSheduler::collect_ready(CollectInstructions& available)
 {
    sfn_log << SfnLog::schedule << "Ready instructions\n";
    bool result = false;
@@ -795,7 +795,7 @@ BlockScheduler::collect_ready(CollectInstructions& available)
 }
 
 bool
-BlockScheduler::collect_ready_alu_vec(std::list<AluInstr *>& ready,
+BlockSheduler::collect_ready_alu_vec(std::list<AluInstr *>& ready,
                                      std::list<AluInstr *>& available)
 {
    auto i = available.begin();
@@ -813,7 +813,7 @@ BlockScheduler::collect_ready_alu_vec(std::list<AluInstr *>& ready,
          /* LDS fetches that use static offsets are usually ready ery fast,
           * so that they would get schedules early, and this leaves the
           * problem that we allocate too many registers with just constant
-          * values, and this will make problems with RA. So limit the number of
+          * values, and this will make problems wih RA. So limit the number of
           * LDS address registers.
           */
          if ((*i)->has_alu_flag(alu_lds_address)) {
@@ -911,7 +911,7 @@ template <> struct type_char<RatInstr> {
 
 template <typename T>
 bool
-BlockScheduler::collect_ready_type(std::list<T *>& ready, std::list<T *>& available)
+BlockSheduler::collect_ready_type(std::list<T *>& ready, std::list<T *>& available)
 {
    auto i = available.begin();
    auto e = available.end();

@@ -99,9 +99,6 @@ struct aapoint_stage
    /** vertex attrib slot containing position */
    uint pos_slot;
 
-   /** Type of Boolean variables on this hardware. */
-   nir_alu_type bool_type;
-
    /** Currently bound fragment shader */
    struct aapoint_fragment_shader *fs;
 
@@ -421,7 +418,7 @@ generate_aapoint_fs_nir(struct aapoint_stage *aapoint)
    if (!aapoint_fs.ir.nir)
       return FALSE;
 
-   nir_lower_aapoint_fs(aapoint_fs.ir.nir, &aapoint->fs->generic_attrib, aapoint->bool_type);
+   nir_lower_aapoint_fs(aapoint_fs.ir.nir, &aapoint->fs->generic_attrib);
    aapoint->fs->aapoint_fs = aapoint->driver_create_fs_state(pipe, &aapoint_fs);
    if (aapoint->fs->aapoint_fs == NULL)
       goto fail;
@@ -692,7 +689,7 @@ draw_aapoint_prepare_outputs(struct draw_context *draw,
 
 
 static struct aapoint_stage *
-draw_aapoint_stage(struct draw_context *draw, nir_alu_type bool_type)
+draw_aapoint_stage(struct draw_context *draw)
 {
    struct aapoint_stage *aapoint = CALLOC_STRUCT(aapoint_stage);
    if (!aapoint)
@@ -707,7 +704,6 @@ draw_aapoint_stage(struct draw_context *draw, nir_alu_type bool_type)
    aapoint->stage.flush = aapoint_flush;
    aapoint->stage.reset_stipple_counter = aapoint_reset_stipple_counter;
    aapoint->stage.destroy = aapoint_destroy;
-   aapoint->bool_type = bool_type;
 
    if (!draw_alloc_temp_verts(&aapoint->stage, 4))
       goto fail;
@@ -797,8 +793,7 @@ aapoint_delete_fs_state(struct pipe_context *pipe, void *fs)
  */
 boolean
 draw_install_aapoint_stage(struct draw_context *draw,
-                           struct pipe_context *pipe,
-                           nir_alu_type bool_type)
+                           struct pipe_context *pipe)
 {
    struct aapoint_stage *aapoint;
 
@@ -807,7 +802,7 @@ draw_install_aapoint_stage(struct draw_context *draw,
    /*
     * Create / install AA point drawing / prim stage
     */
-   aapoint = draw_aapoint_stage(draw, bool_type);
+   aapoint = draw_aapoint_stage(draw);
    if (!aapoint)
       return FALSE;
 

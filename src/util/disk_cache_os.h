@@ -34,7 +34,6 @@
 
 #include "util/fossilize_db.h"
 #include "util/mesa_cache_db.h"
-#include "util/mesa_cache_db_multipart.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,7 +49,6 @@ extern "C" {
 #define CACHE_INDEX_MAX_KEYS (1 << CACHE_INDEX_KEY_BITS)
 
 enum disk_cache_type {
-   DISK_CACHE_NONE,
    DISK_CACHE_MULTI_FILE,
    DISK_CACHE_SINGLE_FILE,
    DISK_CACHE_DATABASE,
@@ -66,7 +64,7 @@ struct disk_cache {
 
    struct foz_db foz_db;
 
-   struct mesa_cache_db_multipart cache_db;
+   struct mesa_cache_db cache_db;
 
    enum disk_cache_type type;
 
@@ -78,7 +76,7 @@ struct disk_cache {
    size_t index_mmap_size;
 
    /* Pointer to total size of all objects in cache (within index_mmap) */
-   p_atomic_uint64_t *size;
+   uint64_t *size;
 
    /* Pointer to stored keys, (within index_mmap). */
    uint8_t *stored_keys;

@@ -298,7 +298,6 @@ static void constant_folding_mul(struct rc_instruction * inst)
 		} else if (swz == RC_SWIZZLE_ZERO) {
 			inst->U.I.Opcode = RC_OPCODE_MOV;
 			inst->U.I.SrcReg[0].Swizzle = RC_SWIZZLE_0000;
-			inst->U.I.SrcReg[0].File = RC_FILE_NONE;
 			return;
 		}
 	}
@@ -312,7 +311,6 @@ static void constant_folding_mul(struct rc_instruction * inst)
 		} else if (swz == RC_SWIZZLE_ZERO) {
 			inst->U.I.Opcode = RC_OPCODE_MOV;
 			inst->U.I.SrcReg[0].Swizzle = RC_SWIZZLE_0000;
-			inst->U.I.SrcReg[0].File = RC_FILE_NONE;
 			return;
 		}
 	}
@@ -658,7 +656,7 @@ static void presub_replace_inv(
 /**
  * PRESUB_INV: ADD TEMP[0], none.1, -TEMP[1]
  * Use the presubtract 1 - src0 for all readers of TEMP[0].  The first source
- * of the add instruction must have the constant 1 swizzle.  This function
+ * of the add instruction must have the constatnt 1 swizzle.  This function
  * does not check const registers to see if their value is 1.0, so it should
  * be called after the constant_folding optimization.
  * @return

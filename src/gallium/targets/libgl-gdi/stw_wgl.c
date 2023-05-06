@@ -42,7 +42,6 @@
 #include <GL/gl.h>
 
 #include "util/u_debug.h"
-#include "stw_gdishim.h"
 #include "gldrv.h"
 #include "stw_context.h"
 #include "stw_pixelformat.h"
@@ -224,7 +223,6 @@ wglUseFontBitmapsW(
    DWORD count,
    DWORD listBase )
 {
-#ifndef _GAMING_XBOX
    GLYPHMETRICS gm;
    MAT2 tra;
    FIXED one, minus_one, zero;
@@ -275,9 +273,6 @@ wglUseFontBitmapsW(
    free(buffer);
 
    return result;
-#else
-   return FALSE;
-#endif /* _GAMING_XBOX */
 }
 
 WINGDIAPI BOOL APIENTRY

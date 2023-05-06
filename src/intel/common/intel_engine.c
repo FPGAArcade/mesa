@@ -23,24 +23,13 @@
 
 #include <stdlib.h>
 
-#include "util/macros.h"
-
 #include "intel_engine.h"
-#include "i915/intel_engine.h"
-#include "xe/intel_engine.h"
+#include "intel_engine_i915.h"
 
 struct intel_query_engine_info *
-intel_engine_get_info(int fd, enum intel_kmd_type type)
+intel_engine_get_info(int fd)
 {
-   switch (type) {
-   case INTEL_KMD_TYPE_I915:
-      return i915_engine_get_info(fd);
-   case INTEL_KMD_TYPE_XE:
-      return xe_engine_get_info(fd);
-   default:
-      unreachable("Missing");
-      return NULL;
-   }
+   return i915_engine_get_info(fd);
 }
 
 int

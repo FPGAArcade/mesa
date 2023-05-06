@@ -43,8 +43,7 @@ static inline void
 intel_set_ps_dispatch_state(struct GENX(3DSTATE_PS) *ps,
                             const struct intel_device_info *devinfo,
                             const struct brw_wm_prog_data *prog_data,
-                            unsigned rasterization_samples,
-                            enum brw_wm_msaa_flags msaa_flags)
+                            unsigned rasterization_samples)
 {
    assert(rasterization_samples != 0);
 
@@ -73,10 +72,7 @@ intel_set_ps_dispatch_state(struct GENX(3DSTATE_PS) *ps,
       enable_8 = false;
 #endif
 
-   const bool is_persample_dispatch =
-      brw_wm_prog_data_is_persample(prog_data, msaa_flags);
-
-   if (is_persample_dispatch) {
+   if (prog_data->persample_dispatch) {
       /* TGL PRMs, Volume 2d: Command Reference: Structures:
        *    3DSTATE_PS_BODY::32 Pixel Dispatch Enable:
        *
@@ -112,7 +108,8 @@ intel_set_ps_dispatch_state(struct GENX(3DSTATE_PS) *ps,
     *
     * 16x MSAA only exists on Gfx9+, so we can skip this on Gfx8.
     */
-   if (GFX_VER >= 9 && rasterization_samples == 16 && !is_persample_dispatch) {
+   if (GFX_VER >= 9 && rasterization_samples == 16 &&
+       !prog_data->persample_dispatch) {
       assert(enable_8 || enable_16);
       enable_32 = false;
    }
@@ -122,19 +119,6 @@ intel_set_ps_dispatch_state(struct GENX(3DSTATE_PS) *ps,
    ps->_8PixelDispatchEnable = enable_8;
    ps->_16PixelDispatchEnable = enable_16;
    ps->_32PixelDispatchEnable = enable_32;
-}
-
-#endif
-
-#if GFX_VERx10 >= 125
-
-UNUSED static int
-preferred_slm_allocation_size(const struct intel_device_info *devinfo)
-{
-   if (intel_needs_workaround(devinfo, 14017341140))
-      return SLM_ENCODES_96K;
-
-   return 0;
 }
 
 #endif

@@ -24,7 +24,6 @@
 #include <perfetto.h>
 
 #include "util/perf/u_perfetto.h"
-#include "util/perf/u_perfetto_renderpass.h"
 
 #include "freedreno_tracepoints.h"
 
@@ -48,12 +47,21 @@ struct FdRenderpassTraits : public perfetto::DefaultDataSourceTraits {
    using IncrementalStateType = FdRenderpassIncrementalState;
 };
 
-class FdRenderpassDataSource : public MesaRenderpassDataSource<FdRenderpassDataSource, FdRenderpassTraits> {
+class FdRenderpassDataSource : public perfetto::DataSource<FdRenderpassDataSource, FdRenderpassTraits> {
 public:
-
-   void OnStart(const StartArgs &args) override
+   void OnSetup(const SetupArgs &) override
    {
-      MesaRenderpassDataSource<FdRenderpassDataSource, FdRenderpassTraits>::OnStart(args);
+      // Use this callback to apply any custom configuration to your data source
+      // based on the TraceConfig in SetupArgs.
+   }
+
+   void OnStart(const StartArgs &) override
+   {
+      // This notification can be used to initialize the GPU driver, enable
+      // counters, etc. StartArgs will contains the DataSourceDescriptor,
+      // which can be extended.
+      u_trace_perfetto_start();
+      PERFETTO_LOG("Tracing started");
 
       /* Note: clock_id's below 128 are reserved.. for custom clock sources,
        * using the hash of a namespaced string is the recommended approach.
@@ -61,6 +69,21 @@ public:
        */
       gpu_clock_id =
          _mesa_hash_string("org.freedesktop.mesa.freedreno") | 0x80000000;
+   }
+
+   void OnStop(const StopArgs &) override
+   {
+      PERFETTO_LOG("Tracing stopped");
+
+      // Undo any initialization done in OnStart.
+      u_trace_perfetto_stop();
+      // TODO we should perhaps block until queued traces are flushed?
+
+      Trace([](FdRenderpassDataSource::TraceContext ctx) {
+         auto packet = ctx.NewTracePacket();
+         packet->Finalize();
+         ctx.Flush();
+      });
    }
 };
 
@@ -289,9 +312,6 @@ sync_timestamp(struct fd_context *ctx)
    uint64_t cpu_ts = perfetto::base::GetBootTimeNs().count();
    uint64_t gpu_ts;
 
-   if (!ctx->ts_to_ns)
-      return;
-
    if (cpu_ts < next_clock_sync_ns)
       return;
 
@@ -306,14 +326,30 @@ sync_timestamp(struct fd_context *ctx)
    /* convert GPU ts into ns: */
    gpu_ts = ctx->ts_to_ns(gpu_ts);
 
-   FdRenderpassDataSource::Trace([=](auto tctx) {
-      MesaRenderpassDataSource<FdRenderpassDataSource,
-                               FdRenderpassTraits>::EmitClockSync(tctx, cpu_ts,
-                                                                  gpu_ts, gpu_clock_id);
-   });
+   FdRenderpassDataSource::Trace([=](FdRenderpassDataSource::TraceContext tctx) {
+      auto packet = tctx.NewTracePacket();
 
-   sync_gpu_ts = gpu_ts;
-   next_clock_sync_ns = cpu_ts + 30000000;
+      packet->set_timestamp(cpu_ts);
+
+      auto event = packet->set_clock_snapshot();
+
+      {
+         auto clock = event->add_clocks();
+
+         clock->set_clock_id(perfetto::protos::pbzero::BUILTIN_CLOCK_BOOTTIME);
+         clock->set_timestamp(cpu_ts);
+      }
+
+      {
+         auto clock = event->add_clocks();
+
+         clock->set_clock_id(gpu_clock_id);
+         clock->set_timestamp(gpu_ts);
+      }
+
+      sync_gpu_ts = gpu_ts;
+      next_clock_sync_ns = cpu_ts + 30000000;
+   });
 }
 
 static void
@@ -334,10 +370,6 @@ emit_submit_id(struct fd_context *ctx)
 void
 fd_perfetto_submit(struct fd_context *ctx)
 {
-   /* sync_timestamp isn't free */
-   if (!u_trace_perfetto_active(&ctx->trace_context))
-      return;
-
    sync_timestamp(ctx);
    emit_submit_id(ctx);
 }

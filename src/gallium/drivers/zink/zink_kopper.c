@@ -323,10 +323,6 @@ kopper_GetSwapchainImages(struct zink_screen *screen, struct kopper_swapchain *c
    if (error != VK_SUCCESS)
       return error;
    cswap->images = calloc(cswap->num_images, sizeof(struct kopper_swapchain_image));
-   if (!cswap->images) {
-      mesa_loge("ZINK: failed to allocate cswap->images!");
-      return VK_ERROR_OUT_OF_HOST_MEMORY;
-   }
    cswap->presents = _mesa_hash_table_create_u32_keys(NULL);
    VkImage images[32];
    error = VKSCR(GetSwapchainImagesKHR)(screen->dev, cswap->swapchain, &cswap->num_images, images);
@@ -515,12 +511,17 @@ kopper_acquire(struct zink_screen *screen, struct zink_resource *res, uint64_t t
           p_atomic_read_relaxed(&cdt->swapchain->num_acquires) >= cdt->swapchain->max_acquires) {
          util_queue_fence_wait(&cdt->present_fence);
       }
+      VkSemaphoreCreateInfo sci = {
+         VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+         NULL,
+         0
+      };
       VkResult ret;
       if (!acquire) {
-         acquire = zink_create_semaphore(screen);
+         ret = VKSCR(CreateSemaphore)(screen->dev, &sci, NULL, &acquire);
          assert(acquire);
-         if (!acquire)
-            return VK_ERROR_OUT_OF_HOST_MEMORY;
+         if (ret != VK_SUCCESS)
+            return ret;
       }
       ret = VKSCR(AcquireNextImageKHR)(screen->dev, cdt->swapchain->swapchain, timeout, acquire, VK_NULL_HANDLE, &res->obj->dt_idx);
       if (ret != VK_SUCCESS && ret != VK_SUBOPTIMAL_KHR) {
@@ -628,9 +629,14 @@ zink_kopper_present(struct zink_screen *screen, struct zink_resource *res)
 {
    assert(res->obj->dt);
    assert(!res->obj->present);
+   VkSemaphoreCreateInfo sci = {
+      VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+      NULL,
+      0
+   };
    assert(zink_kopper_acquired(res->obj->dt, res->obj->dt_idx));
-   res->obj->present = zink_create_semaphore(screen);
-   return res->obj->present;
+   VkResult ret = VKSCR(CreateSemaphore)(screen->dev, &sci, NULL, &res->obj->present);
+   return zink_screen_handle_vkresult(screen, ret) ? res->obj->present : VK_NULL_HANDLE;
 }
 
 struct kopper_present_info {
@@ -683,8 +689,6 @@ kopper_present(void *data, void *gdata, int thread_idx)
       cpi->info.waitSemaphoreCount = 0;
    }
    VkResult error2 = VKSCR(QueuePresentKHR)(screen->queue, &cpi->info);
-   zink_screen_debug_marker_end(screen, screen->frame_marker_emitted);
-   zink_screen_debug_marker_begin(screen, "frame");
    simple_mtx_unlock(&screen->queue_lock);
    swapchain->last_present = cpi->image;
    if (cpi->indefinite_acquire)
@@ -724,11 +728,6 @@ kopper_present(void *data, void *gdata, int thread_idx)
       arr = he->data;
    else {
       arr = malloc(sizeof(struct util_dynarray));
-      if (!arr) {
-         mesa_loge("ZINK: failed to allocate arr!");
-         return;
-      }
-
       util_dynarray_init(arr, NULL);
       _mesa_hash_table_insert(swapchain->presents, (void*)(uintptr_t)next, arr);
    }
@@ -749,17 +748,7 @@ zink_kopper_present_queue(struct zink_screen *screen, struct zink_resource *res)
    struct kopper_displaytarget *cdt = res->obj->dt;
    assert(zink_kopper_acquired(res->obj->dt, res->obj->dt_idx));
    assert(res->obj->present);
-
-   /* always try to prune if the current swapchain has seen presents */
-   if (cdt->swapchain->last_present != UINT32_MAX)
-      prune_old_swapchains(screen, cdt, false);
-
    struct kopper_present_info *cpi = malloc(sizeof(struct kopper_present_info));
-   if (!cpi) {
-      mesa_loge("ZINK: failed to allocate cpi!");
-      return;
-   }
-      
    cpi->sem = res->obj->present;
    cpi->res = res;
    cpi->swapchain = cdt->swapchain;
@@ -853,7 +842,7 @@ zink_kopper_present_readback(struct zink_context *ctx, struct zink_resource *res
    si.pWaitDstStageMask = &mask;
    VkSemaphore acquire = zink_kopper_acquire_submit(screen, res);
    VkSemaphore present = res->obj->present ? res->obj->present : zink_kopper_present(screen, res);
-   if (screen->threaded_submit)
+   if (screen->threaded)
       util_queue_finish(&screen->flush_queue);
    si.waitSemaphoreCount = !!acquire;
    si.pWaitSemaphores = &acquire;

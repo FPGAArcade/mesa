@@ -339,12 +339,7 @@ isa_assemble(struct ir3_shader_variant *v)
 				.instr = instr,
 			};
 
-			bitmask_t encoded;
-			if (instr->opc == OPC_META_RAW) {
-				encoded = uint64_t_to_bitmask(instr->raw.value);
-			} else {
-				encoded = encode__instruction(&s, NULL, instr);
-			}
+			const bitmask_t encoded = encode__instruction(&s, NULL, instr);
 			store_instruction(instrs, encoded);
 			instrs += BITMASK_WORDS;
 		}

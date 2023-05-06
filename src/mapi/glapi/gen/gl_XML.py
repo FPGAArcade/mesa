@@ -508,10 +508,7 @@ class gl_parameter(object):
 
 
     def string(self):
-        if self.type_expr.original_string[-1] == '*':
-            return self.type_expr.original_string + self.name
-        else:
-            return self.type_expr.original_string + " " + self.name
+        return self.type_expr.original_string + " " + self.name
 
 
     def type_string(self):

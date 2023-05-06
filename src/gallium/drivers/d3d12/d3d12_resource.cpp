@@ -41,10 +41,8 @@
 #include <dxguids/dxguids.h>
 #include <memory>
 
-#ifndef _GAMING_XBOX
 #include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
-#endif
 
 #ifndef GENERIC_ALL
  // This is only added to winadapter.h in newer DirectX-Headers
@@ -464,7 +462,6 @@ d3d12_resource_from_handle(struct pipe_screen *pscreen,
    HANDLE d3d_handle = (HANDLE) (intptr_t) handle->handle;
 #endif
 
-#ifndef _GAMING_XBOX
    if (handle->type == WINSYS_HANDLE_TYPE_D3D12_RES) {
       ComPtr<IUnknown> screen_device;
       ComPtr<IUnknown> res_device;
@@ -490,7 +487,6 @@ d3d12_resource_from_handle(struct pipe_screen *pscreen,
          }
       }
    }
-#endif
 
 #ifdef _WIN32
    HANDLE d3d_handle_to_close = nullptr;
@@ -505,11 +501,10 @@ d3d12_resource_from_handle(struct pipe_screen *pscreen,
    if (res->bo) {
       d3d12_res = res->bo->res;
    } else if (handle->type == WINSYS_HANDLE_TYPE_D3D12_RES) {
-      if (handle->modifier == 1) {
-         d3d12_heap = (ID3D12Heap *) handle->com_obj;
-      } else {
-         d3d12_res = (ID3D12Resource *) handle->com_obj;
-      }
+      IUnknown *obj = (IUnknown *)handle->com_obj;
+      (void)obj->QueryInterface(&d3d12_res);
+      (void)obj->QueryInterface(&d3d12_heap);
+      obj->Release();
    } else {
       screen->dev->OpenSharedHandle(d3d_handle, IID_PPV_ARGS(&d3d12_res));
    }
@@ -897,12 +892,7 @@ d3d12_memobj_create_from_handle(struct pipe_screen *pscreen, struct winsys_handl
    }
 
    struct d3d12_screen *screen = d3d12_screen(pscreen);
-#ifdef _GAMING_XBOX
-   IGraphicsUnknown
-#else
-   IUnknown
-#endif
-      *obj;
+   IUnknown *obj;
 #ifdef _WIN32
       HANDLE d3d_handle = handle->handle;
 #else
@@ -937,13 +927,8 @@ d3d12_memobj_create_from_handle(struct pipe_screen *pscreen, struct winsys_handl
    }
    memobj->base.dedicated = dedicated;
 
-   obj->AddRef();
-   if (handle->modifier == 1) {
-      memobj->heap = (ID3D12Heap *) obj;
-   } else {
-      memobj->res = (ID3D12Resource *) obj;
-   }
-
+   (void)obj->QueryInterface(&memobj->res);
+   (void)obj->QueryInterface(&memobj->heap);
    obj->Release();
    if (!memobj->res && !memobj->heap) {
       debug_printf("d3d12: Memory object isn't a resource or heap\n");
@@ -984,7 +969,6 @@ d3d12_resource_from_memobj(struct pipe_screen *pscreen,
    whandle.com_obj = memobj->res ? (void *) memobj->res : (void *) memobj->heap;
    whandle.offset = offset;
    whandle.format = templ->format;
-   whandle.modifier = memobj->res ? 0 : 1;
 
    // WINSYS_HANDLE_TYPE_D3D12_RES implies taking ownership of the reference
    ((IUnknown *)whandle.com_obj)->AddRef();

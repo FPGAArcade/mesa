@@ -4,7 +4,6 @@ pub mod event;
 pub mod format;
 pub mod kernel;
 pub mod memory;
-pub mod platform;
 pub mod program;
 pub mod queue;
 pub mod util;

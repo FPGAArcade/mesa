@@ -49,7 +49,7 @@ device_alloc_image(struct dri2_egl_display *dri2_dpy,
                    struct dri2_egl_surface *dri2_surf)
 {
    return dri2_dpy->image->createImage(
-            dri2_dpy->dri_screen_render_gpu,
+            dri2_dpy->dri_screen,
             dri2_surf->base.Width,
             dri2_surf->base.Height,
             dri2_surf->visual,
@@ -240,7 +240,6 @@ device_get_fd(_EGLDisplay *disp, _EGLDevice *dev)
 {
 #ifdef HAVE_LIBDRM
    int fd = disp->Options.fd;
-   bool kms_swrast = disp->Options.ForceSoftware;
    /* The fcntl() code in _eglGetDeviceDisplay() ensures that valid fd >= 3,
     * and invalid one is 0.
     */
@@ -253,21 +252,17 @@ device_get_fd(_EGLDisplay *disp, _EGLDevice *dev)
       if (dev != _eglAddDevice(fd, false))
          return -1;
 
-      /* kms_swrast only work with primary node. It used to work with render node in
-       * the past because some downstream kernel carry a patch to enable dumb bo
-       * ioctl on render nodes.
+      /* No EGL_EXT_output* extensions are supported, hence no master perms
+       * are needed. Get the render one - otherwise drivers might error out.
        */
-      char *node = kms_swrast ? drmGetPrimaryDeviceNameFromFd(fd) :
-                                drmGetRenderDeviceNameFromFd(fd);
+      char *node = drmGetRenderDeviceNameFromFd(fd);
 
       /* Don't close the internal fd, get render node one based on it. */
       fd = loader_open_device(node);
       free(node);
       return fd;
    }
-   const char *node =  _eglQueryDeviceStringEXT(dev, kms_swrast ?
-                                                     EGL_DRM_DEVICE_FILE_EXT :
-                                                     EGL_DRM_RENDER_NODE_FILE_EXT);
+   const char *node = _eglGetDRMDeviceRenderNode(dev);
    return loader_open_device(node);
 #else
    _eglLog(_EGL_FATAL, "Driver bug: Built without libdrm, yet using a HW device");
@@ -284,13 +279,11 @@ device_probe_device(_EGLDisplay *disp)
    if (request_software)
       _eglLog(_EGL_WARNING, "Not allowed to force software rendering when "
                             "API explicitly selects a hardware device.");
-   dri2_dpy->fd_render_gpu = device_get_fd(disp, disp->Device);
-   if (dri2_dpy->fd_render_gpu < 0)
+   dri2_dpy->fd = device_get_fd(disp, disp->Device);
+   if (dri2_dpy->fd < 0)
       return false;
 
-   dri2_dpy->fd_display_gpu = dri2_dpy->fd_render_gpu;
-
-   dri2_dpy->driver_name = loader_get_driver_for_fd(dri2_dpy->fd_render_gpu);
+   dri2_dpy->driver_name = loader_get_driver_for_fd(dri2_dpy->fd);
    if (!dri2_dpy->driver_name)
       goto err_name;
 
@@ -317,8 +310,8 @@ err_load:
    dri2_dpy->driver_name = NULL;
 
 err_name:
-   close(dri2_dpy->fd_render_gpu);
-   dri2_dpy->fd_render_gpu = dri2_dpy->fd_display_gpu = -1;
+   close(dri2_dpy->fd);
+   dri2_dpy->fd = -1;
    return false;
 
 }
@@ -328,8 +321,7 @@ device_probe_device_sw(_EGLDisplay *disp)
 {
    struct dri2_egl_display *dri2_dpy = dri2_egl_display(disp);
 
-   dri2_dpy->fd_render_gpu = -1;
-   dri2_dpy->fd_display_gpu = -1;
+   dri2_dpy->fd = -1;
    dri2_dpy->driver_name = strdup(disp->Options.Zink ? "zink" : "swrast");
    if (!dri2_dpy->driver_name)
       return false;
@@ -359,8 +351,7 @@ dri2_initialize_device(_EGLDisplay *disp)
    /* Extension requires a PlatformDisplay - the EGLDevice. */
    dev = disp->PlatformDisplay;
 
-   dri2_dpy->fd_render_gpu = -1;
-   dri2_dpy->fd_display_gpu = -1;
+   dri2_dpy->fd = -1;
    disp->Device = dev;
    disp->DriverData = (void *) dri2_dpy;
    err = "DRI2: failed to load driver";
@@ -387,7 +378,7 @@ dri2_initialize_device(_EGLDisplay *disp)
 
    dri2_setup_screen(disp);
 #ifdef HAVE_WAYLAND_PLATFORM
-   dri2_dpy->device_name = loader_get_device_name_for_fd(dri2_dpy->fd_render_gpu);
+   dri2_dpy->device_name = loader_get_device_name_for_fd(dri2_dpy->fd);
 #endif
    dri2_set_WL_bind_wayland_display(disp);
 

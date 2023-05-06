@@ -1,7 +1,1 @@
-gl_androidblendmodes
-gl_atlastext
 gl_localmatriximagefilter
-gl_typefacestyles
-gles_androidblendmodes
-gles_arithmode
-gles_localmatriximagefilter

@@ -54,8 +54,6 @@
 #include "sp_tex_sample.h"
 #include "sp_image.h"
 
-#include "nir.h"
-
 static void
 softpipe_destroy( struct pipe_context *pipe )
 {
@@ -323,7 +321,7 @@ softpipe_create_context(struct pipe_screen *screen,
 
    /* plug in AA line/point stages */
    draw_install_aaline_stage(softpipe->draw, &softpipe->pipe);
-   draw_install_aapoint_stage(softpipe->draw, &softpipe->pipe, nir_type_bool32);
+   draw_install_aapoint_stage(softpipe->draw, &softpipe->pipe);
 
    /* Do polygon stipple w/ texture map + frag prog. */
    draw_install_pstipple_stage(softpipe->draw, &softpipe->pipe);

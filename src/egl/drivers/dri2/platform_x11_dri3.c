@@ -24,7 +24,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
 
 #include <xcb/xcb.h>
 #include <xcb/dri3.h>
@@ -84,7 +83,7 @@ egl_dri3_get_dri_screen(void)
    if (!ctx)
       return NULL;
    dri2_ctx = dri2_egl_context(ctx);
-   return dri2_egl_display(dri2_ctx->base.Resource.Display)->dri_screen_render_gpu;
+   return dri2_egl_display(dri2_ctx->base.Resource.Display)->dri_screen;
 }
 
 static void
@@ -188,8 +187,8 @@ dri3_create_surface(_EGLDisplay *disp, EGLint type, _EGLConfig *conf,
 
    if (loader_dri3_drawable_init(dri2_dpy->conn, drawable,
                                  egl_to_loader_dri3_drawable_type(type),
-                                 dri2_dpy->dri_screen_render_gpu,
-                                 dri2_dpy->dri_screen_display_gpu,
+                                 dri2_dpy->dri_screen,
+                                 dri2_dpy->is_different_gpu,
                                  dri2_dpy->multibuffers_available,
                                  true,
                                  dri_config,
@@ -201,7 +200,7 @@ dri3_create_surface(_EGLDisplay *disp, EGLint type, _EGLConfig *conf,
    }
 
    if (dri3_surf->surf.base.ProtectedContent &&
-       dri2_dpy->fd_render_gpu != dri2_dpy->fd_display_gpu) {
+       dri2_dpy->is_different_gpu) {
       _eglError(EGL_BAD_ALLOC, "dri3_surface_create");
       goto cleanup_pixmap;
    }
@@ -325,7 +324,7 @@ dri3_create_image_khr_pixmap(_EGLDisplay *disp, _EGLContext *ctx,
    dri2_img->dri_image = loader_dri3_create_image(dri2_dpy->conn,
                                                   bp_reply,
                                                   format,
-                                                  dri2_dpy->dri_screen_render_gpu,
+                                                  dri2_dpy->dri_screen,
                                                   dri2_dpy->image,
                                                   dri2_img);
 
@@ -377,7 +376,7 @@ dri3_create_image_khr_pixmap_from_buffers(_EGLDisplay *disp, _EGLContext *ctx,
    dri2_img->dri_image = loader_dri3_create_image_from_buffers(dri2_dpy->conn,
                                                                bp_reply,
                                                                format,
-                                                               dri2_dpy->dri_screen_render_gpu,
+                                                               dri2_dpy->dri_screen,
                                                                dri2_dpy->image,
                                                                dri2_img);
    free(bp_reply);
@@ -510,7 +509,7 @@ dri3_close_screen_notify(_EGLDisplay *disp)
 {
    struct dri2_egl_display *dri2_dpy = dri2_egl_display(disp);
 
-   loader_dri3_close_screen(dri2_dpy->dri_screen_render_gpu);
+   loader_dri3_close_screen(dri2_dpy->dri_screen);
 }
 
 struct dri2_egl_display_vtbl dri3_x11_display_vtbl = {
@@ -623,8 +622,8 @@ dri3_x11_connect(struct dri2_egl_display *dri2_dpy)
    }
    free(xfixes_query);
 
-   dri2_dpy->fd_render_gpu = loader_dri3_open(dri2_dpy->conn, dri2_dpy->screen->root, 0);
-   if (dri2_dpy->fd_render_gpu < 0) {
+   dri2_dpy->fd = loader_dri3_open(dri2_dpy->conn, dri2_dpy->screen->root, 0);
+   if (dri2_dpy->fd < 0) {
       int conn_error = xcb_connection_has_error(dri2_dpy->conn);
       _eglLog(_EGL_WARNING, "DRI3: Screen seems not DRI3 capable");
 
@@ -634,12 +633,12 @@ dri3_x11_connect(struct dri2_egl_display *dri2_dpy)
       return EGL_FALSE;
    }
 
-   loader_get_user_preferred_fd(&dri2_dpy->fd_render_gpu, &dri2_dpy->fd_display_gpu);
+   dri2_dpy->fd = loader_get_user_preferred_fd(dri2_dpy->fd, &dri2_dpy->is_different_gpu);
 
-   dri2_dpy->driver_name = loader_get_driver_for_fd(dri2_dpy->fd_render_gpu);
+   dri2_dpy->driver_name = loader_get_driver_for_fd(dri2_dpy->fd);
    if (!dri2_dpy->driver_name) {
       _eglLog(_EGL_WARNING, "DRI3: No driver found");
-      close(dri2_dpy->fd_render_gpu);
+      close(dri2_dpy->fd);
       return EGL_FALSE;
    }
 
@@ -647,7 +646,7 @@ dri3_x11_connect(struct dri2_egl_display *dri2_dpy)
    /* Only try to get a render device name since dri3 doesn't provide a
     * mechanism for authenticating client opened device node fds. If this
     * fails then don't advertise the extension. */
-   dri2_dpy->device_name = drmGetRenderDeviceNameFromFd(dri2_dpy->fd_render_gpu);
+   dri2_dpy->device_name = drmGetRenderDeviceNameFromFd(dri2_dpy->fd);
 #endif
 
    return EGL_TRUE;

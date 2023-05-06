@@ -21,7 +21,7 @@
  * IN THE SOFTWARE.
  *
  * Authors:
- *    Faith Ekstrand (faith@gfxstrand.net)
+ *    Jason Ekstrand (jason@jlekstrand.net)
  *
  */
 
@@ -203,8 +203,7 @@ _vtn_fail(struct vtn_builder *b, const char *file, unsigned line,
       vtn_dump_shader(b, dump_path, "fail");
 
 #ifndef NDEBUG
-   if (!b->options->skip_os_break_in_debug_build)
-      os_break();
+   os_break();
 #endif
 
    vtn_longjmp(b->fail_jump, 1);
@@ -2463,8 +2462,12 @@ vtn_mem_semantics_to_nir_var_modes(struct vtn_builder *b,
    }
 
    nir_variable_mode modes = 0;
-   if (semantics & SpvMemorySemanticsUniformMemoryMask)
-      modes |= nir_var_mem_ssbo | nir_var_mem_global;
+   if (semantics & SpvMemorySemanticsUniformMemoryMask) {
+      modes |= nir_var_uniform |
+               nir_var_mem_ubo |
+               nir_var_mem_ssbo |
+               nir_var_mem_global;
+   }
    if (semantics & SpvMemorySemanticsImageMemoryMask)
       modes |= nir_var_image;
    if (semantics & SpvMemorySemanticsWorkgroupMemoryMask)
@@ -2481,7 +2484,7 @@ vtn_mem_semantics_to_nir_var_modes(struct vtn_builder *b,
    return modes;
 }
 
-nir_scope
+static nir_scope
 vtn_scope_to_nir_scope(struct vtn_builder *b, SpvScope scope)
 {
    nir_scope nir_scope;
@@ -2844,9 +2847,6 @@ vtn_handle_texture(struct vtn_builder *b, SpvOp opcode,
    case nir_texop_sampler_descriptor_amd:
       vtn_fail("unexpected nir_texop_*descriptor_amd");
       break;
-   case nir_texop_lod_bias_agx:
-      vtn_fail("unexpected nir_texop_lod_bias_agx");
-      break;
    }
 
    unsigned idx = 4;
@@ -3085,14 +3085,6 @@ vtn_handle_texture(struct vtn_builder *b, SpvOp opcode,
    instr->is_new_style_shadow =
       is_shadow && glsl_get_components(ret_type->type) == 1;
    instr->component = gather_component;
-
-   /* If SpvCapabilityImageGatherBiasLodAMD is enabled, texture gather without an explicit LOD
-    * has an implicit one (instead of using level 0).
-    */
-   if (texop == nir_texop_tg4 && b->image_gather_bias_lod &&
-       !(operands & SpvImageOperandsLodMask)) {
-      instr->is_gather_implicit_lod = true;
-   }
 
    /* The Vulkan spec says:
     *
@@ -4805,7 +4797,6 @@ vtn_handle_preamble_instruction(struct vtn_builder *b, SpvOp opcode,
 
       case SpvCapabilityImageGatherBiasLodAMD:
          spv_check_supported(amd_image_gather_bias_lod, cap);
-         b->image_gather_bias_lod = true;
          break;
 
       case SpvCapabilityAtomicFloat16AddEXT:
@@ -4892,18 +4883,6 @@ vtn_handle_preamble_instruction(struct vtn_builder *b, SpvOp opcode,
 
       case SpvCapabilityShaderViewportMaskNV:
          spv_check_supported(shader_viewport_mask_nv, cap);
-         break;
-
-      case SpvCapabilityGroupNonUniformRotateKHR:
-         spv_check_supported(subgroup_rotate, cap);
-         break;
-
-      case SpvCapabilityFragmentFullyCoveredEXT:
-         spv_check_supported(fragment_fully_covered, cap);
-         break;
-
-      case SpvCapabilityFragmentDensityEXT:
-         spv_check_supported(fragment_density, cap);
          break;
 
       default:
@@ -6255,7 +6234,6 @@ vtn_handle_body_instruction(struct vtn_builder *b, SpvOp opcode,
    case SpvOpSubgroupShuffleDownINTEL:
    case SpvOpSubgroupShuffleUpINTEL:
    case SpvOpSubgroupShuffleXorINTEL:
-   case SpvOpGroupNonUniformRotateKHR:
       vtn_handle_subgroup(b, opcode, w, count);
       break;
 
@@ -6512,9 +6490,6 @@ vtn_emit_kernel_entry_point_wrapper(struct vtn_builder *b,
    for (unsigned i = 0; i < entry_point->num_params; ++i) {
       struct vtn_type *param_type = b->entry_point->func->type->params[i];
 
-      b->shader->info.cs.has_variable_shared_mem |=
-         param_type->storage_class == SpvStorageClassWorkgroup;
-
       /* consider all pointers to function memory to be parameters passed
        * by value
        */
@@ -6610,13 +6585,12 @@ spirv_to_nir(const uint32_t *words, size_t word_count,
       return NULL;
    }
 
+   /* Skip the SPIR-V header, handled at vtn_create_builder */
+   words+= 5;
+
    b->shader = nir_shader_create(b, stage, nir_options, NULL);
    b->shader->info.subgroup_size = options->subgroup_size;
    b->shader->info.float_controls_execution_mode = options->float_controls_execution_mode;
-   _mesa_sha1_compute(words, word_count * sizeof(uint32_t), b->shader->info.source_sha1);
-
-   /* Skip the SPIR-V header, handled at vtn_create_builder */
-   words+= 5;
 
    /* Handle all the preamble instructions */
    words = vtn_foreach_instruction(b, words, word_end,
@@ -6719,7 +6693,6 @@ spirv_to_nir(const uint32_t *words, size_t word_count,
 
    /* structurize the CFG */
    nir_lower_goto_ifs(b->shader);
-   nir_lower_continue_constructs(b->shader);
 
    /* A SPIR-V module can have multiple shaders stages and also multiple
     * shaders of the same stage.  Global variables are declared per-module.
@@ -6822,15 +6795,6 @@ spirv_to_nir(const uint32_t *words, size_t word_count,
          }
       }
    }
-
-   /* Work around applications that declare shader_call_data variables inside
-    * ray generation shaders.
-    *
-    * https://gitlab.freedesktop.org/mesa/mesa/-/issues/5326
-    */
-   if (stage == MESA_SHADER_RAYGEN)
-      NIR_PASS(_, b->shader, nir_remove_dead_variables, nir_var_shader_call_data,
-               NULL);
 
    /* Unparent the shader from the vtn_builder before we delete the builder */
    ralloc_steal(NULL, b->shader);

@@ -1392,14 +1392,8 @@ glXQueryExtension( Display *dpy, int *errorBase, int *eventBase )
 PUBLIC void
 glXDestroyContext( Display *dpy, GLXContext ctx )
 {
-   GLXContext glxCtx = ctx;
-
-   if (glxCtx == NULL || glxCtx->xid == None)
-      return;
-
-   if (ctx->currentDpy) {
-      ctx->xid = None;
-   } else {
+   if (ctx) {
+      GLXContext glxCtx = ctx;
       (void) dpy;
       XMesaDestroyContext( glxCtx->xmesaContext );
       XMesaGarbageCollect();

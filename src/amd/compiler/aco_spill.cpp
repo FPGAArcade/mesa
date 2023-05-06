@@ -326,7 +326,7 @@ do_reload(spill_ctx& ctx, Temp tmp, Temp new_name, uint32_t spill_id)
 
       aco_ptr<Instruction> res;
       if (instr->isVOP1()) {
-         res.reset(create_instruction<VALU_instruction>(
+         res.reset(create_instruction<VOP1_instruction>(
             instr->opcode, instr->format, instr->operands.size(), instr->definitions.size()));
       } else if (instr->isSOP1()) {
          res.reset(create_instruction<SOP1_instruction>(
@@ -486,7 +486,7 @@ init_live_in_vars(spill_ctx& ctx, Block* block, unsigned block_idx)
    RegisterDemand spilled_registers;
 
    /* first block, nothing was spilled before */
-   if (block->linear_preds.empty())
+   if (block_idx == 0)
       return {0, 0};
 
    /* next use distances at the beginning of the current block */
@@ -881,7 +881,7 @@ add_coupling_code(spill_ctx& ctx, Block* block, unsigned block_idx)
             Temp var = phi->operands[i].getTemp();
 
             std::map<Temp, Temp>::iterator rename_it = ctx.renames[pred_idx].find(var);
-            /* prevent the defining instruction from being DCE'd if it could be rematerialized */
+            /* prevent the definining instruction from being DCE'd if it could be rematerialized */
             if (rename_it == ctx.renames[preds[i]].end() && ctx.remat.count(var))
                ctx.unused_remats.erase(ctx.remat[var].instr);
 
@@ -1001,7 +1001,7 @@ add_coupling_code(spill_ctx& ctx, Block* block, unsigned block_idx)
                ctx.renames[pred_idx].find(phi->operands[i].getTemp());
             if (it != ctx.renames[pred_idx].end()) {
                phi->operands[i].setTemp(it->second);
-            /* prevent the defining instruction from being DCE'd if it could be rematerialized */
+            /* prevent the definining instruction from being DCE'd if it could be rematerialized */
             } else {
                auto remat_it = ctx.remat.find(phi->operands[i].getTemp());
                if (remat_it != ctx.remat.end()) {
@@ -1117,7 +1117,7 @@ add_coupling_code(spill_ctx& ctx, Block* block, unsigned block_idx)
                tmp = rename;
             } else {
                tmp = pair.first;
-               /* prevent the defining instruction from being DCE'd if it could be rematerialized */
+               /* prevent the definining instruction from being DCE'd if it could be rematerialized */
                if (ctx.remat.count(tmp))
                   ctx.unused_remats.erase(ctx.remat[tmp].instr);
             }
@@ -1162,7 +1162,7 @@ process_block(spill_ctx& ctx, unsigned block_idx, Block* block, RegisterDemand s
    std::vector<aco_ptr<Instruction>> instructions;
    unsigned idx = 0;
 
-   /* phis are handled separately */
+   /* phis are handled separetely */
    while (block->instructions[idx]->opcode == aco_opcode::p_phi ||
           block->instructions[idx]->opcode == aco_opcode::p_linear_phi) {
       instructions.emplace_back(std::move(block->instructions[idx++]));
@@ -1191,7 +1191,7 @@ process_block(spill_ctx& ctx, unsigned block_idx, Block* block, RegisterDemand s
             if (rename_it != ctx.renames[block_idx].end()) {
                op.setTemp(rename_it->second);
             } else {
-               /* prevent its defining instruction from being DCE'd if it could be rematerialized */
+               /* prevent its definining instruction from being DCE'd if it could be rematerialized */
                auto remat_it = ctx.remat.find(op.getTemp());
                if (remat_it != ctx.remat.end()) {
                   ctx.unused_remats.erase(remat_it->second.instr);
@@ -1679,7 +1679,7 @@ end_unused_spill_vgprs(spill_ctx& ctx, Block& block, std::vector<Temp>& vgpr_spi
          vgpr_spill_temps[i] = Temp();
       }
    }
-   if (temps.empty() || block.linear_preds.empty())
+   if (temps.empty())
       return;
 
    aco_ptr<Instruction> destr{create_instruction<Pseudo_instruction>(
@@ -1743,7 +1743,7 @@ assign_spill_slots(spill_ctx& ctx, unsigned spills_to_vgpr)
    unsigned last_top_level_block_idx = 0;
    for (Block& block : ctx.program->blocks) {
 
-      if (block.kind & block_kind_top_level) {
+      if (block.kind & block_kind_top_level && !block.linear_preds.empty()) {
          last_top_level_block_idx = block.index;
 
          end_unused_spill_vgprs(ctx, block, vgpr_spill_temps, slots, ctx.spills_entry[block.index]);

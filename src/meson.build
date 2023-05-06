@@ -26,7 +26,6 @@ inc_gallium_aux = include_directories('gallium/auxiliary')
 inc_amd_common = include_directories('amd/common')
 inc_tool = include_directories('tool')
 inc_virtio_gpu = include_directories('virtio/virtio-gpu')
-inc_frontends = include_directories('gallium/frontends')
 pps_datasources = []
 pps_includes = []
 
@@ -36,11 +35,18 @@ else
   inc_amd_common_llvm = []
 endif
 
-glsl_util_files = files(
+libglsl_util = static_library(
+  'glsl_util',
+  files(
     'mesa/main/extensions_table.c',
     'mesa/program/prog_parameter.c',
     'mesa/program/symbol_table.c',
     'mesa/program/dummy_errors.c',
+  ),
+  include_directories : [inc_include, inc_src, inc_mapi, inc_mesa, inc_gallium, inc_gallium_aux],
+  dependencies : dep_valgrind,
+  gnu_symbol_visibility : 'hidden',
+  build_by_default : false,
 )
 
 sha1_h = custom_target(
@@ -60,9 +66,8 @@ endif
 subdir('android_stub')
 subdir('c11/impl')
 subdir('util')
-if with_gallium
-  subdir('mapi')
-endif
+subdir('mapi')
+# TODO: opengl
 subdir('compiler')
 if with_tools.contains('drm-shim')
   subdir('drm-shim')
@@ -109,8 +114,9 @@ endif
 if with_gallium_asahi or with_tools.contains('asahi')
   subdir('asahi')
 endif
-if with_gallium or with_gbm
-  subdir('loader')
+subdir('loader')
+if with_platform_haiku
+  subdir('hgl')
 endif
 if with_gbm
   subdir('gbm')

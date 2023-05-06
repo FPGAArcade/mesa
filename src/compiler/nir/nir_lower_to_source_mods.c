@@ -19,6 +19,10 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  * IN THE SOFTWARE.
+ *
+ * Authors:
+ *    Jason Ekstrand (jason@jlekstrand.net)
+ *
  */
 
 #include "nir.h"
@@ -152,13 +156,11 @@ nir_lower_to_source_mods_block(nir_block *block,
       if (!(options & nir_lower_float_source_mods))
          continue;
 
-      bool all_children_are_sat = true;
-      nir_foreach_use_including_if(child_src, &alu->dest.dest.ssa) {
-         if (child_src->is_if) {
-            all_children_are_sat = false;
-            break;
-         }
+      if (!list_is_empty(&alu->dest.dest.ssa.if_uses))
+         continue;
 
+      bool all_children_are_sat = true;
+      nir_foreach_use(child_src, &alu->dest.dest.ssa) {
          assert(child_src->is_ssa);
          nir_instr *child = child_src->parent_instr;
          if (child->type != nir_instr_type_alu) {

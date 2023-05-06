@@ -267,8 +267,6 @@ nir_lower_non_uniform_access_impl(nir_function_impl *impl,
             case nir_intrinsic_image_atomic_xor:
             case nir_intrinsic_image_atomic_exchange:
             case nir_intrinsic_image_atomic_comp_swap:
-            case nir_intrinsic_image_atomic_inc_wrap:
-            case nir_intrinsic_image_atomic_dec_wrap:
             case nir_intrinsic_image_atomic_fadd:
             case nir_intrinsic_image_atomic_fmin:
             case nir_intrinsic_image_atomic_fmax:
@@ -289,8 +287,6 @@ nir_lower_non_uniform_access_impl(nir_function_impl *impl,
             case nir_intrinsic_bindless_image_atomic_xor:
             case nir_intrinsic_bindless_image_atomic_exchange:
             case nir_intrinsic_bindless_image_atomic_comp_swap:
-            case nir_intrinsic_bindless_image_atomic_inc_wrap:
-            case nir_intrinsic_bindless_image_atomic_dec_wrap:
             case nir_intrinsic_bindless_image_atomic_fadd:
             case nir_intrinsic_bindless_image_atomic_fmin:
             case nir_intrinsic_bindless_image_atomic_fmax:
@@ -311,8 +307,6 @@ nir_lower_non_uniform_access_impl(nir_function_impl *impl,
             case nir_intrinsic_image_deref_atomic_xor:
             case nir_intrinsic_image_deref_atomic_exchange:
             case nir_intrinsic_image_deref_atomic_comp_swap:
-            case nir_intrinsic_image_deref_atomic_inc_wrap:
-            case nir_intrinsic_image_deref_atomic_dec_wrap:
             case nir_intrinsic_image_deref_atomic_fadd:
             case nir_intrinsic_image_deref_atomic_fmin:
             case nir_intrinsic_image_deref_atomic_fmax:

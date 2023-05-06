@@ -118,13 +118,6 @@ cl_advance(struct v3dv_cl_out **cl, uint32_t n)
 }
 
 static inline void
-cl_advance_and_end(struct v3dv_cl *cl, uint32_t n)
-{
-   cl->next = (struct v3dv_cl_out *)((char *)(cl->next) + n);
-   assert(v3dv_cl_offset(cl) <= cl->size);
-}
-
-static inline void
 cl_aligned_u32(struct v3dv_cl_out **cl, uint32_t n)
 {
    *(uint32_t *)(*cl) = n;
@@ -185,7 +178,8 @@ void v3dv_cl_ensure_space_with_branch(struct v3dv_cl *cl, uint32_t space);
         ({                                                       \
                 struct v3dv_cl_out *cl_out = cl_start(cl);        \
                 cl_packet_pack(packet)(cl, (uint8_t *)cl_out, &name); \
-                cl_advance_and_end(cl, cl_packet_length(packet)); \
+                cl_advance(&cl_out, cl_packet_length(packet));   \
+                cl_end(cl, cl_out);                              \
                 _loop_terminate = NULL;                          \
         }))                                                      \
 
@@ -201,7 +195,8 @@ void v3dv_cl_ensure_space_with_branch(struct v3dv_cl *cl, uint32_t space);
                 cl_packet_pack(packet)(cl, packed, &name);       \
                 for (int _i = 0; _i < cl_packet_length(packet); _i++) \
                         ((uint8_t *)cl_out)[_i] = packed[_i] | (prepacked)[_i]; \
-                cl_advance_and_end(cl, cl_packet_length(packet)); \
+                cl_advance(&cl_out, cl_packet_length(packet));   \
+                cl_end(cl, cl_out);                              \
                 _loop_terminate = NULL;                          \
         }))                                                      \
 

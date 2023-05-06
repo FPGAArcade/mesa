@@ -158,12 +158,8 @@ struct dxil_validator;
 class ResourceStateManager;
 #endif
 
-#define D3D12_CONTEXT_NO_ID 0xffffffff
-
 struct d3d12_context {
    struct pipe_context base;
-
-   unsigned id;
    struct slab_child_pool transfer_pool;
    struct slab_child_pool transfer_pool_unsync;
    struct list_head context_list_entry;
@@ -187,7 +183,6 @@ struct d3d12_context {
    struct util_dynarray recently_destroyed_bos;
    struct util_dynarray barrier_scratch;
    struct set *pending_barriers_bos;
-   struct util_dynarray local_pending_barriers_bos;
 
    struct pipe_constant_buffer cbufs[PIPE_SHADER_TYPES][PIPE_MAX_CONSTANT_BUFFERS];
    struct pipe_framebuffer_state fb;
@@ -215,10 +210,7 @@ struct d3d12_context {
    struct d3d12_sampler_state *samplers[PIPE_SHADER_TYPES][PIPE_MAX_SAMPLERS];
    unsigned num_samplers[PIPE_SHADER_TYPES];
    D3D12_INDEX_BUFFER_VIEW ibv;
-
    dxil_wrap_sampler_state tex_wrap_states[PIPE_SHADER_TYPES][PIPE_MAX_SHADER_SAMPLER_VIEWS];
-   dxil_wrap_sampler_state tex_wrap_states_shader_key[PIPE_MAX_SHADER_SAMPLER_VIEWS];
-
    dxil_texture_swizzle_state tex_swizzle_state[PIPE_SHADER_TYPES][PIPE_MAX_SHADER_SAMPLER_VIEWS];
    enum compare_func tex_compare_func[PIPE_SHADER_TYPES][PIPE_MAX_SHADER_SAMPLER_VIEWS];
 
@@ -242,10 +234,6 @@ struct d3d12_context {
    struct d3d12_shader_selector *gfx_stages[D3D12_GFX_SHADER_STAGES];
    struct d3d12_shader_selector *compute_state;
 
-   bool has_flat_varyings;
-   bool missing_dual_src_outputs;
-   bool manual_depth_range;
-
    struct d3d12_gfx_pipeline_state gfx_pipeline_state;
    struct d3d12_compute_pipeline_state compute_pipeline_state;
    unsigned shader_dirty[PIPE_SHADER_TYPES];
@@ -257,7 +245,6 @@ struct d3d12_context {
 
    uint64_t submit_id;
    ID3D12GraphicsCommandList *cmdlist;
-   ID3D12GraphicsCommandList8 *cmdlist8;
    ID3D12GraphicsCommandList *state_fixup_cmdlist;
 
    struct list_head active_queries;
@@ -268,9 +255,7 @@ struct d3d12_context {
    struct d3d12_descriptor_handle null_sampler;
 
    PFN_D3D12_SERIALIZE_VERSIONED_ROOT_SIGNATURE D3D12SerializeVersionedRootSignature;
-#ifndef _GAMING_XBOX
    ID3D12DeviceConfiguration *dev_config;
-#endif
 #ifdef _WIN32
    struct dxil_validator *dxil_validator;
 #endif

@@ -157,7 +157,7 @@ lp_build_interp_soa(struct lp_build_interp_soa_context *bld,
                     LLVMTypeRef mask_type,
                     LLVMValueRef mask_store,
                     unsigned attrib, unsigned chan,
-                    enum tgsi_interpolate_loc loc,
+                    unsigned loc,
                     LLVMValueRef indir_index,
                     LLVMValueRef offsets[2]);
 

@@ -401,7 +401,7 @@ static unsigned calc_dpb_size(struct ruvd_decoder *dec)
             dpb_size += align(width_in_mb * height_in_mb * 32, alignment);
          }
       } else {
-         // the firmware seems to always assume a minimum of ref frames
+         // the firmware seems to allways assume a minimum of ref frames
          max_references = MAX2(NUM_H264_REFS, max_references);
          // reference picture buffer
          dpb_size = image_size * max_references;
@@ -433,7 +433,7 @@ static unsigned calc_dpb_size(struct ruvd_decoder *dec)
       break;
 
    case PIPE_VIDEO_FORMAT_VC1:
-      // the firmware seems to always assume a minimum of ref frames
+      // the firmware seems to allways assume a minimum of ref frames
       max_references = MAX2(NUM_VC1_REFS, max_references);
 
       // reference picture buffer
@@ -1059,7 +1059,7 @@ static void ruvd_decode_bitstream(struct pipe_video_codec *decoder,
 
       if (new_size > buf->res->buf->size) {
          dec->ws->buffer_unmap(dec->ws, buf->res->buf);
-         if (!si_vid_resize_buffer(dec->screen, &dec->cs, buf, new_size, NULL)) {
+         if (!si_vid_resize_buffer(dec->screen, &dec->cs, buf, new_size)) {
             RVID_ERR("Can't resize bitstream buffer!");
             return;
          }

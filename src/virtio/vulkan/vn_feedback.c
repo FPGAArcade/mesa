@@ -5,7 +5,6 @@
 
 #include "vn_feedback.h"
 
-#include "vn_command_buffer.h"
 #include "vn_device.h"
 #include "vn_physical_device.h"
 #include "vn_queue.h"
@@ -59,12 +58,7 @@ vn_feedback_buffer_create(struct vn_device *dev,
    const VkBufferCreateInfo buf_create_info = {
       .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
       .size = size,
-      /* Feedback for fences and timeline semaphores will write to this buffer
-       * as a DST when signalling. Timeline semaphore feedback will also read
-       * from this buffer as a SRC to retrieve the counter value to signal.
-       */
-      .usage =
-         VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       .sharingMode =
          exclusive ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT,
       /* below favors the current venus protocol */
@@ -270,74 +264,12 @@ vn_feedback_pool_free(struct vn_feedback_pool *pool,
    simple_mtx_unlock(&pool->mutex);
 }
 
-static inline bool
-mask_is_32bit(uint64_t x)
-{
-   return (x & 0xffffffff00000000) == 0;
-}
-
-static void
-vn_build_buffer_memory_barrier(const VkDependencyInfo *dep_info,
-                               VkBufferMemoryBarrier *barrier1,
-                               VkPipelineStageFlags *src_stage_mask,
-                               VkPipelineStageFlags *dst_stage_mask)
-{
-
-   assert(dep_info->pNext == NULL);
-   assert(dep_info->memoryBarrierCount == 0);
-   assert(dep_info->bufferMemoryBarrierCount == 1);
-   assert(dep_info->imageMemoryBarrierCount == 0);
-
-   const VkBufferMemoryBarrier2 *barrier2 =
-      &dep_info->pBufferMemoryBarriers[0];
-   assert(barrier2->pNext == NULL);
-   assert(mask_is_32bit(barrier2->srcStageMask));
-   assert(mask_is_32bit(barrier2->srcAccessMask));
-   assert(mask_is_32bit(barrier2->dstStageMask));
-   assert(mask_is_32bit(barrier2->dstAccessMask));
-
-   *barrier1 = (VkBufferMemoryBarrier){
-      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-      .pNext = NULL,
-      .srcAccessMask = barrier2->srcAccessMask,
-      .dstAccessMask = barrier2->dstAccessMask,
-      .srcQueueFamilyIndex = barrier2->srcQueueFamilyIndex,
-      .dstQueueFamilyIndex = barrier2->dstQueueFamilyIndex,
-      .buffer = barrier2->buffer,
-      .offset = barrier2->offset,
-      .size = barrier2->size,
-   };
-
-   *src_stage_mask = barrier2->srcStageMask;
-   *dst_stage_mask = barrier2->dstStageMask;
-}
-
-static void
-vn_cmd_buffer_memory_barrier(VkCommandBuffer cmd_handle,
-                             const VkDependencyInfo *dep_info,
-                             bool sync2)
-{
-   if (sync2)
-      vn_CmdPipelineBarrier2(cmd_handle, dep_info);
-   else {
-      VkBufferMemoryBarrier barrier1;
-      VkPipelineStageFlags src_stage_mask;
-      VkPipelineStageFlags dst_stage_mask;
-
-      vn_build_buffer_memory_barrier(dep_info, &barrier1, &src_stage_mask,
-                                     &dst_stage_mask);
-      vn_CmdPipelineBarrier(cmd_handle, src_stage_mask, dst_stage_mask,
-                            dep_info->dependencyFlags, 0, NULL, 1, &barrier1,
-                            0, NULL);
-   }
-}
-
+/** See also vn_feedback_event_cmd_record2(). */
 void
 vn_feedback_event_cmd_record(VkCommandBuffer cmd_handle,
                              VkEvent ev_handle,
-                             VkPipelineStageFlags2 src_stage_mask,
-                             VkResult status,
-                             bool sync2)
+                             VkPipelineStageFlags stage_mask,
+                             VkResult status)
 {
    /* For vkCmdSetEvent and vkCmdResetEvent feedback interception.
     *
@@ -350,6 +282,56 @@ vn_feedback_event_cmd_record(VkCommandBuffer cmd_handle,
     */
    struct vn_event *ev = vn_event_from_handle(ev_handle);
    struct vn_feedback_slot *slot = ev->feedback_slot;
+
+   if (!slot)
+      return;
+
+   STATIC_ASSERT(sizeof(*slot->status) == 4);
+
+   const VkBufferMemoryBarrier buf_barrier_before = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+      .pNext = NULL,
+      .srcAccessMask =
+         VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+      .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = slot->buffer,
+      .offset = slot->offset,
+      .size = 4,
+   };
+   vn_CmdPipelineBarrier(cmd_handle,
+                         stage_mask | VK_PIPELINE_STAGE_HOST_BIT |
+                            VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 1,
+                         &buf_barrier_before, 0, NULL);
+   vn_CmdFillBuffer(cmd_handle, slot->buffer, slot->offset, 4, status);
+
+   const VkBufferMemoryBarrier buf_barrier_after = {
+      .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+      .pNext = NULL,
+      .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+      .dstAccessMask = VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .buffer = slot->buffer,
+      .offset = slot->offset,
+      .size = 4,
+   };
+   vn_CmdPipelineBarrier(cmd_handle, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_HOST_BIT, 0, 0, NULL, 1,
+                         &buf_barrier_after, 0, NULL);
+}
+
+/** See also vn_feedback_event_cmd_record(). */
+void
+vn_feedback_event_cmd_record2(VkCommandBuffer cmd_h,
+                              VkEvent event_h,
+                              VkPipelineStageFlags2 src_stage_mask,
+                              VkResult status)
+{
+   struct vn_event *event = vn_event_from_handle(event_h);
+   struct vn_feedback_slot *slot = event->feedback_slot;
 
    if (!slot)
       return;
@@ -378,9 +360,6 @@ vn_feedback_event_cmd_record(VkCommandBuffer cmd_handle,
             },
          },
    };
-   vn_cmd_buffer_memory_barrier(cmd_handle, &dep_before, sync2);
-
-   vn_CmdFillBuffer(cmd_handle, slot->buffer, slot->offset, 4, status);
 
    const VkDependencyInfo dep_after = {
       .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -403,22 +382,18 @@ vn_feedback_event_cmd_record(VkCommandBuffer cmd_handle,
             },
          },
    };
-   vn_cmd_buffer_memory_barrier(cmd_handle, &dep_after, sync2);
+
+   vn_CmdPipelineBarrier2(cmd_h, &dep_before);
+   vn_CmdFillBuffer(cmd_h, slot->buffer, slot->offset, 4, status);
+   vn_CmdPipelineBarrier2(cmd_h, &dep_after);
 }
 
 static VkResult
-vn_feedback_cmd_record(VkCommandBuffer cmd_handle,
-                       struct vn_feedback_slot *dst_slot,
-                       struct vn_feedback_slot *src_slot)
-{
-   STATIC_ASSERT(sizeof(*dst_slot->status) == 4);
-   STATIC_ASSERT(sizeof(*dst_slot->counter) == 8);
-   STATIC_ASSERT(sizeof(*src_slot->counter) == 8);
+vn_feedback_fence_cmd_record(VkCommandBuffer cmd_handle,
+                             struct vn_feedback_slot *slot)
 
-   /* slot size is 8 bytes for timeline semaphore and 4 bytes fence.
-    * src slot is non-null for timeline semaphore.
-    */
-   const VkDeviceSize buf_size = src_slot ? 8 : 4;
+{
+   STATIC_ASSERT(sizeof(*slot->status) == 4);
 
    static const VkCommandBufferBeginInfo begin_info = {
       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -433,12 +408,11 @@ vn_feedback_cmd_record(VkCommandBuffer cmd_handle,
    static const VkMemoryBarrier mem_barrier_before = {
       .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
       .pNext = NULL,
-      /* make pending writes available to stay close to signal op */
+      /* make pending writes available to stay close to fence signal op */
       .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
       /* no need to make all memory visible for feedback update */
       .dstAccessMask = 0,
    };
-
    const VkBufferMemoryBarrier buf_barrier_before = {
       .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
       .pNext = NULL,
@@ -447,40 +421,15 @@ vn_feedback_cmd_record(VkCommandBuffer cmd_handle,
       .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
       .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
       .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .buffer = dst_slot->buffer,
-      .offset = dst_slot->offset,
-      .size = buf_size,
+      .buffer = slot->buffer,
+      .offset = slot->offset,
+      .size = 4,
    };
-
-   /* host writes for src_slots should implicitly be made visible upon
-    * QueueSubmit call */
    vn_CmdPipelineBarrier(cmd_handle, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1,
                          &mem_barrier_before, 1, &buf_barrier_before, 0,
                          NULL);
-
-   /* If passed a src_slot, timeline semaphore feedback records a
-    * cmd to copy the counter value from the src slot to the dst slot.
-    * If src_slot is NULL, then fence feedback records a cmd to fill
-    * the dst slot with VK_SUCCESS.
-    */
-   if (src_slot) {
-      assert(src_slot->type == VN_FEEDBACK_TYPE_TIMELINE_SEMAPHORE);
-      assert(dst_slot->type == VN_FEEDBACK_TYPE_TIMELINE_SEMAPHORE);
-
-      const VkBufferCopy buffer_copy = {
-         .srcOffset = src_slot->offset,
-         .dstOffset = dst_slot->offset,
-         .size = buf_size,
-      };
-      vn_CmdCopyBuffer(cmd_handle, src_slot->buffer, dst_slot->buffer, 1,
-                       &buffer_copy);
-   } else {
-      assert(dst_slot->type == VN_FEEDBACK_TYPE_FENCE);
-
-      vn_CmdFillBuffer(cmd_handle, dst_slot->buffer, dst_slot->offset,
-                       buf_size, VK_SUCCESS);
-   }
+   vn_CmdFillBuffer(cmd_handle, slot->buffer, slot->offset, 4, VK_SUCCESS);
 
    const VkBufferMemoryBarrier buf_barrier_after = {
       .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -489,9 +438,9 @@ vn_feedback_cmd_record(VkCommandBuffer cmd_handle,
       .dstAccessMask = VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT,
       .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
       .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .buffer = dst_slot->buffer,
-      .offset = dst_slot->offset,
-      .size = buf_size,
+      .buffer = slot->buffer,
+      .offset = slot->offset,
+      .size = 4,
    };
    vn_CmdPipelineBarrier(cmd_handle, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_HOST_BIT, 0, 0, NULL, 1,
@@ -501,11 +450,10 @@ vn_feedback_cmd_record(VkCommandBuffer cmd_handle,
 }
 
 VkResult
-vn_feedback_cmd_alloc(VkDevice dev_handle,
-                      struct vn_feedback_cmd_pool *pool,
-                      struct vn_feedback_slot *dst_slot,
-                      struct vn_feedback_slot *src_slot,
-                      VkCommandBuffer *out_cmd_handle)
+vn_feedback_fence_cmd_alloc(VkDevice dev_handle,
+                            struct vn_feedback_cmd_pool *pool,
+                            struct vn_feedback_slot *slot,
+                            VkCommandBuffer *out_cmd_handle)
 {
    const VkCommandBufferAllocateInfo info = {
       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -522,7 +470,7 @@ vn_feedback_cmd_alloc(VkDevice dev_handle,
    if (result != VK_SUCCESS)
       goto out_unlock;
 
-   result = vn_feedback_cmd_record(cmd_handle, dst_slot, src_slot);
+   result = vn_feedback_fence_cmd_record(cmd_handle, slot);
    if (result != VK_SUCCESS) {
       vn_FreeCommandBuffers(dev_handle, pool->pool, 1, &cmd_handle);
       goto out_unlock;
@@ -537,9 +485,9 @@ out_unlock:
 }
 
 void
-vn_feedback_cmd_free(VkDevice dev_handle,
-                     struct vn_feedback_cmd_pool *pool,
-                     VkCommandBuffer cmd_handle)
+vn_feedback_fence_cmd_free(VkDevice dev_handle,
+                           struct vn_feedback_cmd_pool *pool,
+                           VkCommandBuffer cmd_handle)
 {
    simple_mtx_lock(&pool->mutex);
    vn_FreeCommandBuffers(dev_handle, pool->pool, 1, &cmd_handle);
@@ -558,7 +506,8 @@ vn_feedback_cmd_pools_init(struct vn_device *dev)
       .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
    };
 
-   if (VN_PERF(NO_FENCE_FEEDBACK) && VN_PERF(NO_TIMELINE_SEM_FEEDBACK))
+   /* TODO will also condition on timeline semaphore feedback */
+   if (VN_PERF(NO_FENCE_FEEDBACK))
       return VK_SUCCESS;
 
    assert(dev->queue_family_count);

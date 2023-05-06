@@ -30,7 +30,6 @@
 
 #include <windows.h>
 #include <GL/gl.h>
-#include <stw_gdishim.h>
 #include <gldrv.h>
 
 struct hud_context;

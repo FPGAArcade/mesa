@@ -92,16 +92,14 @@ struct radv_accel_struct_header {
    uint32_t reserved;
    radv_aabb aabb;
 
-   /* Everything after this gets either updated/copied from the CPU or written by header.comp. */
+   /* Everything after this gets updated/copied from the CPU. */
    uint64_t compacted_size;
    uint64_t serialization_size;
    uint32_t copy_dispatch_size[3];
-   uint64_t size;
-
-   /* Everything after this gets updated/copied from the CPU. */
    uint32_t geometry_count;
    uint64_t instance_offset;
    uint64_t instance_count;
+   uint64_t size;
    uint32_t build_flags;
 };
 
@@ -111,13 +109,13 @@ struct radv_ir_node {
    float cost;
 };
 
-#define RADV_UNKNOWN_BVH_OFFSET 0xFFFFFFFF
-#define RADV_NULL_BVH_OFFSET    0xFFFFFFFE
-
+#define FINAL_TREE_PRESENT 0
+#define FINAL_TREE_NOT_PRESENT 1
+#define FINAL_TREE_UNKNOWN 2
 struct radv_ir_box_node {
    radv_ir_node base;
    uint32_t children[2];
-   uint32_t bvh_offset;
+   uint32_t in_final_tree;
 };
 
 struct radv_ir_aabb_node {
@@ -160,14 +158,13 @@ struct radv_ir_header {
    int32_t min_bounds[3];
    int32_t max_bounds[3];
    uint32_t active_leaf_count;
-   /* Indirect dispatch dimensions for the encoder.
+   /* Indirect dispatch dimensions for the internal node converter.
     * ir_internal_node_count is the thread count in the X dimension,
     * while Y and Z are always set to 1. */
    uint32_t ir_internal_node_count;
    uint32_t dispatch_size_y;
    uint32_t dispatch_size_z;
    radv_global_sync_data sync_data;
-   uint32_t dst_node_offset;
 };
 
 struct radv_bvh_triangle_node {
@@ -181,10 +178,11 @@ struct radv_bvh_triangle_node {
 };
 
 struct radv_bvh_aabb_node {
+   radv_aabb aabb;
    uint32_t primitive_id;
    /* flags in upper 4 bits */
    uint32_t geometry_id_and_flags;
-   uint32_t reserved[14];
+   uint32_t reserved[8];
 };
 
 struct radv_bvh_instance_node {

@@ -41,7 +41,6 @@ struct kopper_swapchain_image {
    int age;
    VkImage image;
    VkSemaphore acquire;
-   VkImageLayout layout;
 };
 
 struct kopper_swapchain {

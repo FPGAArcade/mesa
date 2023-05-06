@@ -279,7 +279,8 @@ lp_setup_triangle_ccw(struct lp_setup_context *setup,
 struct lp_rast_triangle *
 lp_setup_alloc_triangle(struct lp_scene *scene,
                         unsigned num_inputs,
-                        unsigned nr_planes);
+                        unsigned nr_planes,
+                        unsigned *tri_size);
 
 struct lp_rast_rectangle *
 lp_setup_alloc_rectangle(struct lp_scene *scene,
