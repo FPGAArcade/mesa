@@ -93,6 +93,7 @@ struct lima_screen {
    #define pp_buffer_size            0x1000
 
    bool has_growable_heap_buffer;
+   bool has_perfmon_ioctl;
 
    struct disk_cache *disk_cache;
 };
